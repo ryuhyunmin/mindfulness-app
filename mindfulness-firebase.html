@@ -1,0 +1,1297 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>마음챙김 명상 플랫폼</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700&family=Noto+Serif+KR:wght@300;400;600;700&display=swap" rel="stylesheet"/>
+
+<!-- Firebase SDK -->
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getFirestore, collection, doc, setDoc, getDoc, getDocs, query, where, orderBy, deleteDoc, onSnapshot }
+  from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject }
+  from "https://www.gstatic.com/firebasejs/10.12.0/firebase-storage.js";
+import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged }
+  from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+
+/* ── Firebase 초기화 ── */
+const firebaseConfig = {
+  apiKey: "AIzaSyBJ8h8hK8kM9cpxlRbwXvKMuWvYEoFFs6s",
+  authDomain: "mindfulness-meditation-acef2.firebaseapp.com",
+  projectId: "mindfulness-meditation-acef2",
+  storageBucket: "mindfulness-meditation-acef2.firebasestorage.app",
+  messagingSenderId: "49506795940",
+  appId: "1:49506795940:web:e556a29dde8ec65cf0c131",
+  measurementId: "G-LRPY7TLXDE"
+};
+const app   = initializeApp(firebaseConfig);
+const db    = getFirestore(app);
+const storage = getStorage(app);
+const auth  = getAuth(app);
+const gp    = new GoogleAuthProvider();
+
+/* ── 전역 상태 ── */
+let currentUser = null;
+let currentTab  = "timer";
+let timerInterval = null;
+let timerLeft = 0;
+let timerDur  = 10;
+let timerRunning = false;
+let timerElapsed = 0;
+let mediaRecorder = null;
+let audioChunks   = [];
+let recInterval   = null;
+let recElapsed    = 0;
+let playingId     = null;
+let currentAudio  = null;
+
+/* ── 상수 ── */
+const MOOD_LIST = ["😌 평온","🌿 청량","💫 집중","🌊 고요","☁️ 몽롱","💭 산만","😤 긴장","🌸 감사","✨ 통찰","😢 슬픔"];
+const DURATION_OPTIONS = [3,5,10,15,20,30,40,50,60];
+const EXAMPLE_PROMPTS = [
+  "오늘 명상 중 어떤 생각이나 감각이 떠올랐나요?",
+  "명상 전과 후, 몸과 마음의 변화를 느꼈나요?",
+  "오늘 명상에서 가장 인상 깊었던 순간은?",
+  "지금 이 순간 감사한 것 세 가지를 적어보세요.",
+  "명상 중 어떤 호흡 패턴이 가장 편안했나요?",
+  "오늘 명상이 일상에 어떤 영향을 주었나요?",
+  "명상 중 내려놓을 수 있었던 것은 무엇인가요?",
+];
+const GUIDED_MSGS = [
+  {at:0,   t:"편안하게 앉아 눈을 천천히 감으세요."},
+  {at:20,  t:"코로 깊게 숨을 들이쉬세요... 배가 부풀어 오릅니다."},
+  {at:45,  t:"잠시 멈추고... 천천히 내쉬세요."},
+  {at:80,  t:"생각이 떠오르면 구름처럼 흘려보내세요."},
+  {at:130, t:"지금 이 호흡, 지금 이 순간에만 집중하세요."},
+  {at:200, t:"몸의 긴장된 곳에 부드럽게 숨을 보내세요."},
+  {at:300, t:"마음이 고요해지는 것을 느끼세요."},
+  {at:450, t:"깊은 평화 속에 머무세요."},
+  {at:600, t:"서서히 의식을 현재로 가져오세요."},
+];
+const ADMIN_EMAILS = ["hyunmin@example.com"]; // ← 교수님 구글 이메일로 교체하세요
+const KO_MONTHS = ["1월","2월","3월","4월","5월","6월","7월","8월","9월","10월","11월","12월"];
+const KO_DAYS   = ["일","월","화","수","목","금","토"];
+
+/* ── 헬퍼 ── */
+const isoDate = d => d.toISOString().slice(0,10);
+const today   = () => isoDate(new Date());
+const addDays = (ds,n) => { const d=new Date(ds); d.setDate(d.getDate()+n); return isoDate(d); };
+const daysBetween = (a,b) => Math.round((new Date(b)-new Date(a))/86400000)+1;
+const fmtDate = iso => iso ? new Date(iso).toLocaleDateString("ko-KR",{month:"long",day:"numeric"}) : "";
+const fmtDT   = iso => iso ? new Date(iso).toLocaleDateString("ko-KR",{month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"}) : "";
+const fmtTime = s => `${String(Math.floor(s/60)).padStart(2,"0")}:${String(s%60).padStart(2,"0")}`;
+const timeAgo = iso => {
+  if(!iso) return "";
+  const m=Math.floor((Date.now()-new Date(iso))/60000);
+  if(m<1) return "방금"; if(m<60) return `${m}분 전`;
+  const h=Math.floor(m/60); if(h<24) return `${h}시간 전`;
+  return `${Math.floor(h/24)}일 전`;
+};
+const $ = id => document.getElementById(id);
+const isAdmin = () => currentUser && ADMIN_EMAILS.includes(currentUser.email);
+
+/* ── Firestore 래퍼 ── */
+const FB = {
+  async set(col, docId, data) {
+    await setDoc(doc(db, col, docId), {...data, _updatedAt: new Date().toISOString()});
+  },
+  async get(col, docId) {
+    const d = await getDoc(doc(db, col, docId));
+    return d.exists() ? d.data() : null;
+  },
+  async list(col, constraints=[]) {
+    const q = constraints.length ? query(collection(db, col), ...constraints) : collection(db, col);
+    const snap = await getDocs(q);
+    return snap.docs.map(d => ({id:d.id, ...d.data()}));
+  },
+  async del(col, docId) {
+    await deleteDoc(doc(db, col, docId));
+  },
+};
+
+/* ══════════════════════════════════════════════════
+   RENDER ENGINE
+   ══════════════════════════════════════════════════ */
+function render() {
+  if (!currentUser) { renderLogin(); return; }
+  renderApp();
+}
+
+function renderLogin() {
+  document.body.innerHTML = `
+  <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:radial-gradient(ellipse at 35% 35%,#62c9a209 0%,#06080e 55%);flex-direction:column;gap:0;padding:24px;font-family:'Noto Sans KR',sans-serif;">
+    <div style="text-align:center;margin-bottom:44px;">
+      <div style="font-size:64px;margin-bottom:18px;filter:drop-shadow(0 0 24px #62c9a255)">🧘</div>
+      <h1 style="font-family:'Noto Serif KR',serif;color:#62c9a2;font-size:30px;letter-spacing:-.5px;margin-bottom:8px;">마음챙김 명상</h1>
+      <p style="color:#92aabf;font-size:14px;line-height:1.7;">대학원 명상 실습 커뮤니티</p>
+    </div>
+    <button onclick="loginGoogle()" style="display:flex;align-items:center;gap:12px;padding:14px 28px;border-radius:14px;border:1.5px solid #1c2b40;background:#0d1420;color:#dce8f2;font-size:15px;font-family:'Noto Sans KR',sans-serif;font-weight:600;cursor:pointer;">
+      <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" width="22" height="22"/>
+      Google 계정으로 시작하기
+    </button>
+    <p style="color:#2a3a4a;font-size:11px;margin-top:18px;">구글 계정으로 1클릭 로그인 · 별도 가입 불필요</p>
+  </div>`;
+}
+
+function renderApp() {
+  const u = currentUser;
+  const tabs = [
+    {id:"timer",icon:"🧘",label:"명상"},
+    {id:"challenge",icon:"📅",label:"챌린지"},
+    {id:"record",icon:"🎙️",label:"녹음"},
+    {id:"community",icon:"💬",label:"커뮤니티"},
+    {id:"guide",icon:"👩‍🏫",label:"가이드"},
+    {id:"mypage",icon:"👤",label:"내 페이지"},
+    ...(isAdmin()?[{id:"admin",icon:"📊",label:"관리자"}]:[]),
+  ];
+  document.body.innerHTML = `
+  <div style="min-height:100vh;background:#06080e;font-family:'Noto Sans KR',sans-serif;">
+    <header style="position:sticky;top:0;z-index:100;background:#0d1420ee;backdrop-filter:blur(14px);border-bottom:1px solid #1c2b40;padding:11px 18px;display:flex;align-items:center;justify-content:space-between;">
+      <span style="font-family:'Noto Serif KR',serif;color:#62c9a2;font-size:18px;">🧘 마음챙김</span>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <img src="${u.photoURL||''}" width="28" height="28" style="border-radius:50%;border:1.5px solid #62c9a255;" onerror="this.style.display='none'"/>
+        <span style="color:#92aabf;font-size:13px;">${u.displayName||u.email}</span>
+        <button onclick="logout()" style="background:transparent;border:none;color:#506070;font-size:12px;cursor:pointer;font-family:inherit;">로그아웃</button>
+      </div>
+    </header>
+    <nav style="display:flex;background:#0d1420cc;border-bottom:1px solid #1c2b40;overflow-x:auto;position:sticky;top:50px;z-index:99;backdrop-filter:blur(8px);">
+      ${tabs.map(t=>`
+        <button onclick="switchTab('${t.id}')" id="tab_${t.id}" style="flex:1;min-width:56px;padding:10px 4px;border:none;background:transparent;border-bottom:2.5px solid ${currentTab===t.id?'#62c9a2':'transparent'};color:${currentTab===t.id?'#62c9a2':'#506070'};font-size:10px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:2px;font-family:inherit;transition:all .2s;">
+          <span style="font-size:15px;">${t.icon}</span><span>${t.label}</span>
+        </button>`).join("")}
+    </nav>
+    <main id="main" style="padding:24px 14px 64px;max-width:680px;margin:0 auto;"></main>
+  </div>`;
+  loadTab(currentTab);
+}
+
+function switchTab(id) {
+  currentTab = id;
+  document.querySelectorAll("nav button").forEach(b=>{
+    const tid = b.id.replace("tab_","");
+    b.style.borderBottomColor = tid===id ? "#62c9a2" : "transparent";
+    b.style.color = tid===id ? "#62c9a2" : "#506070";
+  });
+  loadTab(id);
+}
+
+function loadTab(id) {
+  const m = $("main"); if(!m) return;
+  m.innerHTML = `<div style="text-align:center;padding:40px;color:#506070;">불러오는 중...</div>`;
+  if(id==="timer")     renderTimer();
+  if(id==="challenge") renderChallenge();
+  if(id==="record")    renderRecord();
+  if(id==="community") renderCommunity();
+  if(id==="guide")     renderGuide();
+  if(id==="mypage")    renderMyPage();
+  if(id==="admin")     renderAdmin();
+}
+
+/* ══════════════════════════════════════════════════
+   AUTH
+   ══════════════════════════════════════════════════ */
+window.loginGoogle = async () => {
+  try { await signInWithPopup(auth, gp); }
+  catch(e) { alert("로그인 실패: "+e.message); }
+};
+window.logout = async () => { await signOut(auth); };
+
+onAuthStateChanged(auth, async user => {
+  currentUser = user;
+  if(user) {
+    // 사용자 프로필 Firestore에 저장
+    await FB.set("users", user.uid, {
+      uid: user.uid, name: user.displayName, email: user.email,
+      photoURL: user.photoURL, lastLogin: new Date().toISOString(),
+    });
+  }
+  render();
+});
+
+/* ══════════════════════════════════════════════════
+   TIMER TAB
+   ══════════════════════════════════════════════════ */
+function renderTimer() {
+  const m=$("main"); if(!m)return;
+  m.innerHTML=`
+  <div style="max-width:460px;margin:0 auto;animation:fadeUp .4s ease both;">
+    <h2 style="font-family:'Noto Serif KR',serif;color:#62c9a2;text-align:center;font-size:22px;margin-bottom:4px;">명상 타이머</h2>
+    <p style="color:#92aabf;text-align:center;font-size:13px;margin-bottom:24px;">지금 이 순간에 머무세요</p>
+    <div style="display:flex;gap:10px;margin-bottom:24px;" id="timer_stats"></div>
+    <div id="dur_picker" style="display:flex;gap:7px;justify-content:center;margin-bottom:28px;flex-wrap:wrap;">
+      ${DURATION_OPTIONS.map(m=>`<button onclick="setDur(${m})" id="dur_${m}" style="padding:7px 14px;border-radius:20px;border:1.5px solid #1c2b40;background:transparent;color:#92aabf;font-size:13px;cursor:pointer;font-family:inherit;transition:all .2s;">${m===60?"60분+":m+"분"}</button>`).join("")}
+    </div>
+    <div id="custom_dur_wrap" style="display:none;justify-content:center;gap:8px;align-items:center;margin-bottom:20px;">
+      <input type="number" id="custom_dur" min="60" max="300" placeholder="분 직접 입력" style="width:120px;background:#121b2c;border:1.5px solid #62c9a2;border-radius:10px;padding:8px 12px;color:#62c9a2;font-size:13px;outline:none;font-family:inherit;"/>
+      <span style="color:#506070;font-size:13px;">분</span>
+    </div>
+    <div style="display:flex;justify-content:center;margin-bottom:20px;position:relative;">
+      <div id="timer_ripple" style="display:none;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:220px;height:220px;border-radius:50%;background:#62c9a220;animation:ripple 2.5s ease-out infinite;"></div>
+      <svg width="220" height="220" style="transform:rotate(-90deg);" id="timer_svg">
+        <circle cx="110" cy="110" r="88" fill="none" stroke="#152030" stroke-width="7"/>
+        <circle cx="110" cy="110" r="88" fill="none" stroke="#62c9a2" stroke-width="7"
+          stroke-dasharray="${2*Math.PI*88}" stroke-dashoffset="${2*Math.PI*88}"
+          stroke-linecap="round" style="transition:stroke-dashoffset .9s ease;" id="timer_arc"/>
+        <text x="110" y="104" text-anchor="middle" dominant-baseline="middle" fill="#dce8f2" font-size="34" font-family="'Noto Sans KR',sans-serif" font-weight="600" style="transform:rotate(90deg);transform-origin:110px 110px;" id="timer_txt">${fmtTime(timerDur*60)}</text>
+        <text x="110" y="130" text-anchor="middle" dominant-baseline="middle" fill="#506070" font-size="12" font-family="'Noto Sans KR',sans-serif" style="transform:rotate(90deg);transform-origin:110px 110px;" id="timer_sub">${timerDur}분</text>
+      </svg>
+    </div>
+    <div id="timer_guide" style="display:none;background:#0d1420;border:1px solid #62c9a244;border-radius:12px;padding:14px 18px;margin-bottom:20px;text-align:center;">
+      <p id="timer_guide_txt" style="font-family:'Noto Serif KR',serif;color:#62c9a2;font-size:15px;line-height:1.85;"></p>
+    </div>
+    <div style="display:flex;gap:12px;justify-content:center;" id="timer_btns">
+      <button onclick="startTimer()" style="padding:10px 28px;border-radius:24px;border:1.5px solid #62c9a2;background:#62c9a220;color:#62c9a2;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;">시작하기</button>
+    </div>
+  </div>`;
+  loadTimerStats();
+  updateDurButtons();
+}
+
+window.setDur = n => {
+  timerDur = n;
+  updateDurButtons();
+  const cd = $("custom_dur_wrap");
+  if(n===60) { cd.style.display="flex"; }
+  else { cd.style.display="none"; $("timer_txt").textContent=fmtTime(n*60); $("timer_sub").textContent=n+"분"; }
+};
+
+function updateDurButtons() {
+  DURATION_OPTIONS.forEach(n=>{
+    const b=$(`dur_${n}`);
+    if(!b) return;
+    b.style.borderColor = n===timerDur ? "#62c9a2" : "#1c2b40";
+    b.style.background  = n===timerDur ? "#62c9a220" : "transparent";
+    b.style.color       = n===timerDur ? "#62c9a2" : "#92aabf";
+    b.style.fontWeight  = n===timerDur ? "700" : "400";
+  });
+}
+
+async function loadTimerStats() {
+  const el=$("timer_stats"); if(!el)return;
+  const sessions = await FB.list("sessions",[where("uid","==",currentUser.uid)]);
+  const total = sessions.reduce((a,s)=>a+(s.duration||0),0);
+  const todayCnt = sessions.filter(s=>s.date?.slice(0,10)===today()).length;
+  el.innerHTML=[{l:"총 세션",v:`${sessions.length}회`},{l:"총 명상",v:`${total}분`},{l:"오늘",v:`${todayCnt}회`}].map(s=>`
+    <div style="background:#121b2c;border-radius:12px;padding:10px 0;text-align:center;border:1px solid #1c2b40;flex:1;">
+      <div style="color:#62c9a2;font-weight:700;font-size:17px;">${s.v}</div>
+      <div style="color:#506070;font-size:11px;margin-top:2px;">${s.l}</div>
+    </div>`).join("");
+}
+
+window.startTimer = () => {
+  const cd=$("custom_dur")?.value;
+  const effDur = (timerDur===60&&cd) ? (parseInt(cd)||60) : timerDur;
+  timerLeft = effDur*60; timerElapsed=0; timerRunning=true;
+  $("dur_picker").style.display="none";
+  $("custom_dur_wrap").style.display="none";
+  $("timer_ripple").style.display="block";
+  $("timer_guide").style.display="block";
+  $("timer_btns").innerHTML=`<button onclick="stopTimer()" style="padding:10px 28px;border-radius:24px;border:1.5px solid #d47a88;background:#d47a8820;color:#d47a88;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;">멈추기</button>`;
+  updateTimerArc(effDur*60, effDur*60);
+  timerInterval = setInterval(()=>tickTimer(effDur), 1000);
+};
+
+function tickTimer(effDur) {
+  timerElapsed++; timerLeft--;
+  let guide=GUIDED_MSGS[0].t;
+  for(const g of GUIDED_MSGS){if(timerElapsed>=g.at)guide=g.t;}
+  $("timer_guide_txt") && ($("timer_guide_txt").textContent=guide);
+  updateTimerArc(timerLeft, effDur*60);
+  if(timerLeft<=0){
+    clearInterval(timerInterval); timerRunning=false;
+    finishTimer(effDur);
+  }
+}
+
+function updateTimerArc(left, total) {
+  const arc=$("timer_arc"), txt=$("timer_txt"), sub=$("timer_sub"); if(!arc)return;
+  const prog = (total-left)/total;
+  const circ = 2*Math.PI*88;
+  arc.style.strokeDashoffset = circ-(prog*circ);
+  txt.textContent = left>0?fmtTime(left):"✓";
+  sub.textContent = left>0?`${Math.ceil(left/60)}분 남음`:"완료";
+  if(left<=0){arc.style.stroke="#d9b065";txt.style.fill="#d9b065";}
+}
+
+async function finishTimer(dur) {
+  $("timer_ripple").style.display="none";
+  $("timer_guide_txt") && ($("timer_guide_txt").textContent="🙏 명상을 마쳤습니다. 잠시 그 고요함 안에 머물러 보세요.");
+  $("timer_btns").innerHTML=`
+    <button onclick="startTimer()" style="padding:10px 22px;border-radius:24px;border:1.5px solid #62c9a2;background:#62c9a220;color:#62c9a2;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;">다시 하기</button>
+    <button onclick="resetTimer()" style="padding:10px 22px;border-radius:24px;border:1.5px solid #d9b065;background:#d9b06520;color:#d9b065;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;">완료 ✓</button>`;
+  // Save session
+  const sid=`${currentUser.uid}_${Date.now()}`;
+  await FB.set("sessions", sid, { uid:currentUser.uid, name:currentUser.displayName, date:new Date().toISOString(), duration:dur });
+  loadTimerStats();
+}
+
+window.stopTimer = () => {
+  clearInterval(timerInterval); timerRunning=false;
+  resetTimer();
+};
+window.resetTimer = () => {
+  clearInterval(timerInterval); timerRunning=false;
+  renderTimer();
+};
+
+/* ══════════════════════════════════════════════════
+   CHALLENGE + JOURNAL TAB
+   ══════════════════════════════════════════════════ */
+async function renderChallenge() {
+  const m=$("main");if(!m)return;
+  const challenge = await FB.get("challenges", currentUser.uid);
+  if(!challenge){ renderChallengeSetup(); return; }
+
+  // Load journaled dates
+  const journals = await FB.list("journals",[where("uid","==",currentUser.uid)]);
+  const jMap={};
+  journals.forEach(j=>jMap[j.date]=j);
+
+  // Leaderboard
+  const allChals = await FB.list("challenges");
+  const board = allChals.sort((a,b)=>(b.checkedDates?.length||0)-(a.checkedDates?.length||0));
+
+  const pct=Math.round((challenge.checkedDates?.length||0)/challenge.totalDays*100);
+  const viewDate=new Date();
+  const yr=viewDate.getFullYear(), mo=viewDate.getMonth();
+
+  m.innerHTML=`
+  <div style="max-width:540px;margin:0 auto;animation:fadeUp .4s ease both;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">
+      <h2 style="font-family:'Noto Serif KR',serif;color:#d9b065;font-size:22px;">명상 챌린지</h2>
+      <button onclick="renderChallengeSetup()" style="padding:6px 14px;border-radius:20px;border:1px solid #1c2b40;background:transparent;color:#92aabf;font-size:12px;cursor:pointer;font-family:inherit;">재설정</button>
+    </div>
+    <!-- Progress -->
+    <div style="background:#0d1420;border-radius:14px;border:1px solid #1c2b40;padding:16px 18px;margin-bottom:14px;">
+      <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
+        <span style="color:#92aabf;font-size:14px;">${challenge.totalDays}일 챌린지</span>
+        <span style="color:#d9b065;font-weight:700;">${challenge.checkedDates?.length||0}/${challenge.totalDays}일 (${pct}%)</span>
+      </div>
+      <div style="height:7px;background:#1c2b40;border-radius:4px;">
+        <div style="height:7px;width:${pct}%;background:linear-gradient(90deg,#3d8a6a,#d9b065);border-radius:4px;transition:width .5s;"></div>
+      </div>
+      <div style="display:flex;gap:6px;color:#506070;font-size:12px;margin-top:8px;">
+        <span>${fmtDate(challenge.startDate)}</span><span>~</span><span>${fmtDate(challenge.endDate)}</span>
+      </div>
+    </div>
+    <!-- Legend -->
+    <div style="display:flex;gap:12px;margin-bottom:10px;flex-wrap:wrap;">
+      ${[{c:"#62c9a2",l:"저널 작성 완료"},{c:"#d9b065",l:"오늘"},{c:"#172030",l:"챌린지 범위"}].map(x=>`
+      <div style="display:flex;gap:6px;align-items:center;">
+        <div style="width:12px;height:12px;border-radius:3px;background:${x.c}40;border:1.5px solid ${x.c}80;"></div>
+        <span style="color:#506070;font-size:11px;">${x.l}</span>
+      </div>`).join("")}
+    </div>
+    <p style="color:#506070;font-size:11px;margin-bottom:10px;">📌 날짜를 클릭하면 저널을 작성하거나 확인할 수 있습니다</p>
+    <!-- Month nav -->
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;" id="cal_nav">
+      <button onclick="calPrev()" style="background:transparent;border:none;color:#92aabf;font-size:22px;cursor:pointer;width:36px;">‹</button>
+      <span id="cal_title" style="font-family:'Noto Serif KR',serif;color:#dce8f2;font-size:16px;">${yr}년 ${KO_MONTHS[mo]}</span>
+      <button onclick="calNext()" style="background:transparent;border:none;color:#92aabf;font-size:22px;cursor:pointer;width:36px;">›</button>
+    </div>
+    <!-- Day headers -->
+    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;margin-bottom:4px;">
+      ${KO_DAYS.map((d,i)=>`<div style="text-align:center;font-size:11px;color:${i===0?'#d47a88':i===6?'#7aaed4':'#506070'};padding:3px 0;">${d}</div>`).join("")}
+    </div>
+    <!-- Calendar grid -->
+    <div id="cal_grid" style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;margin-bottom:20px;"></div>
+    <!-- Export -->
+    <div style="background:#0d1420;border-radius:12px;padding:14px 16px;margin-bottom:20px;border:1px solid #1c2b40;">
+      <p style="color:#92aabf;font-size:13px;margin-bottom:10px;">📅 캘린더 연동</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button onclick="exportGCal()" style="padding:7px 16px;border-radius:20px;border:1.5px solid #62c9a2;background:#62c9a220;color:#62c9a2;font-size:12px;cursor:pointer;font-family:inherit;">Google 캘린더</button>
+        <button onclick="exportICS()" style="padding:7px 16px;border-radius:20px;border:1.5px solid #d9b065;background:#d9b06520;color:#d9b065;font-size:12px;cursor:pointer;font-family:inherit;">.ics 다운로드</button>
+      </div>
+    </div>
+    <!-- Leaderboard -->
+    <h3 style="color:#62c9a2;font-size:15px;margin-bottom:12px;">🏆 참여자 현황</h3>
+    <div id="board_list"></div>
+  </div>
+  <!-- Journal Modal -->
+  <div id="journal_modal" style="display:none;position:fixed;inset:0;background:#000a;z-index:1000;display:none;align-items:flex-end;justify-content:center;">
+    <div id="journal_inner" style="background:#0d1420;border-radius:20px 20px 0 0;border:1px solid #1c2b40;width:100%;max-width:620px;max-height:92vh;overflow-y:auto;padding:24px;animation:slideUp .3s ease;"></div>
+  </div>`;
+
+  // Render calendar
+  window._calState={yr,mo,challenge,jMap};
+  renderCalGrid();
+
+  // Leaderboard
+  const bl=$("board_list");
+  bl.innerHTML=board.slice(0,8).map((u,i)=>`
+    <div style="display:flex;align-items:center;gap:10px;background:${u.uid===currentUser.uid?'#62c9a220':'#121b2c'};border-radius:10px;padding:9px 14px;border:1px solid ${u.uid===currentUser.uid?'#62c9a244':'#1c2b40'};margin-bottom:8px;">
+      <span style="color:#d9b065;width:18px;font-weight:700;font-size:12px;">${i+1}</span>
+      <span style="color:#dce8f2;font-size:13px;flex:1;">${u.userName||u.uid}${u.uid===currentUser.uid?" (나)":""}</span>
+      <span style="color:#62c9a2;font-size:12px;font-weight:600;">${u.checkedDates?.length||0}/${u.totalDays||0}일</span>
+    </div>`).join("")||`<p style="color:#506070;text-align:center;padding:24px 0;font-size:13px;">아직 참여자가 없습니다</p>`;
+
+  window.exportGCal = () => {
+    const title=encodeURIComponent(`명상 챌린지 ${challenge.totalDays}일`);
+    const s=challenge.startDate.replace(/-/g,""), e=addDays(challenge.endDate,1).replace(/-/g,"");
+    window.open(`https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&dates=${s}/${e}&details=${encodeURIComponent("마음챙김 명상 챌린지")}&recur=RRULE:FREQ=DAILY`,"_blank");
+  };
+  window.exportICS = () => {
+    const lines=["BEGIN:VCALENDAR","VERSION:2.0","BEGIN:VEVENT",
+      `DTSTART;VALUE=DATE:${challenge.startDate.replace(/-/g,"")}`,
+      `DTEND;VALUE=DATE:${addDays(challenge.endDate,1).replace(/-/g,"")}`,
+      `SUMMARY:명상 챌린지 ${challenge.totalDays}일`,`RRULE:FREQ=DAILY;COUNT=${challenge.totalDays}`,"END:VEVENT","END:VCALENDAR"];
+    const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([lines.join("\r\n")],{type:"text/calendar"}));a.download="meditation.ics";a.click();
+  };
+}
+
+window.calPrev=()=>{ const s=window._calState; if(s.mo===0){s.mo=11;s.yr--;}else s.mo--; $("cal_title").textContent=`${s.yr}년 ${KO_MONTHS[s.mo]}`; renderCalGrid(); };
+window.calNext=()=>{ const s=window._calState; if(s.mo===11){s.mo=0;s.yr++;}else s.mo++; $("cal_title").textContent=`${s.yr}년 ${KO_MONTHS[s.mo]}`; renderCalGrid(); };
+
+function renderCalGrid() {
+  const {yr,mo,challenge,jMap}=window._calState;
+  const g=$("cal_grid"); if(!g)return;
+  const first=new Date(yr,mo,1), dow=first.getDay(), dim=new Date(yr,mo+1,0).getDate();
+  let html="";
+  for(let i=0;i<dow;i++) html+=`<div></div>`;
+  for(let d=1;d<=dim;d++){
+    const date=isoDate(new Date(yr,mo,d));
+    const inRange=challenge&&date>=challenge.startDate&&date<=challenge.endDate;
+    const hasJ=!!jMap[date];
+    const isT=date===today();
+    const mood=hasJ&&jMap[date].moods?.[0]?.split(" ")[0]||"";
+    html+=`<button onclick="openJournal('${date}')" style="aspect-ratio:1;border-radius:9px;border:1.5px solid ${isT?'#d9b065':hasJ?'#62c9a260':inRange?'#1c2b40':'transparent'};background:${hasJ?'#62c9a220':inRange?'#172030':'transparent'};color:${hasJ?'#62c9a2':inRange?'#dce8f2':'#2a3a4a'};font-size:12px;cursor:${inRange?'pointer':'default'};outline:none;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;font-family:inherit;position:relative;">
+      <span>${hasJ?"✓":d}</span>
+      ${mood?`<span style="font-size:9px;">${mood}</span>`:""}
+      ${isT?`<div style="position:absolute;bottom:3px;width:4px;height:4px;border-radius:50%;background:#d9b065;"></div>`:""}
+    </button>`;
+  }
+  g.innerHTML=html;
+}
+
+window.openJournal = async (date) => {
+  const {challenge}=window._calState||{};
+  if(challenge&&(date<challenge.startDate||date>challenge.endDate)) return;
+  const modal=$("journal_modal"); if(!modal)return;
+  modal.style.display="flex";
+  const inner=$("journal_inner");
+  inner.innerHTML=`<p style="color:#92aabf;font-size:13px;">불러오는 중...</p>`;
+  const j=await FB.get("journals",`${currentUser.uid}_${date}`);
+  renderJournalInner(date,j,inner);
+};
+
+function renderJournalInner(date,j,inner) {
+  const exQ=EXAMPLE_PROMPTS[new Date(date).getDate()%EXAMPLE_PROMPTS.length];
+  const readMoods=Array.isArray(j?.moods)?j.moods:(j?.mood?[j.mood]:[]);
+  const isEdit=!j;
+
+  if(j&&!isEdit){
+    inner.innerHTML=`
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:18px;">
+      <div><p style="color:#92aabf;font-size:12px;margin-bottom:2px;">${date}</p>
+        <h2 style="font-family:'Noto Serif KR',serif;color:#62c9a2;font-size:20px;">${date===today()?"오늘의 명상 저널":fmtDate(date)+" 저널"}</h2></div>
+      <div style="display:flex;gap:8px;">
+        <button onclick="editJournal('${date}')" style="padding:6px 14px;border-radius:20px;border:1px solid #1c2b40;background:transparent;color:#92aabf;font-size:12px;cursor:pointer;font-family:inherit;">수정</button>
+        <button onclick="deleteJournal('${date}')" style="padding:6px 14px;border-radius:20px;border:1px solid #d47a88;background:#d47a8820;color:#d47a88;font-size:12px;cursor:pointer;font-family:inherit;">삭제</button>
+        <button onclick="closeJournal()" style="background:transparent;border:1px solid #1c2b40;border-radius:50%;width:32px;height:32px;color:#92aabf;cursor:pointer;font-size:16px;">✕</button>
+      </div>
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;">
+      ${readMoods.map(m=>`<span style="padding:3px 10px;border-radius:10px;font-size:11px;font-weight:600;background:#62c9a220;color:#62c9a2;border:1px solid #62c9a240;">${m}</span>`).join("")}
+      <span style="padding:3px 10px;border-radius:10px;font-size:11px;font-weight:600;background:#7aaed420;color:#7aaed4;border:1px solid #7aaed440;">${j.duration}분 명상</span>
+    </div>
+    ${j.reflectQ?`<div style="background:#62c9a215;border-radius:10px;padding:10px 14px;margin-bottom:12px;border:1px solid #62c9a230;"><p style="color:#62c9a2;font-size:13px;">💭 ${j.reflectQ}</p></div>`:""}
+    <div style="background:#121b2c;border-radius:12px;padding:16px;margin-bottom:12px;border:1px solid #1c2b40;">
+      <p style="color:#92aabf;font-size:12px;margin-bottom:8px;">📝 명상 기록</p>
+      <p style="color:#dce8f2;font-size:14px;line-height:1.85;white-space:pre-wrap;">${j.body||"(기록 없음)"}</p>
+    </div>
+    ${j.insight?`<div style="background:#d9b06520;border-radius:12px;padding:14px;margin-bottom:14px;border:1px solid #d9b06540;"><p style="color:#d9b065;font-size:12px;margin-bottom:6px;">✨ 오늘의 통찰</p><p style="color:#dce8f2;font-size:14px;line-height:1.8;white-space:pre-wrap;">${j.insight}</p></div>`:""}
+    <div style="display:flex;gap:10px;flex-wrap:wrap;">
+      <button onclick="getAiReflection('${date}')" style="padding:7px 16px;border-radius:20px;border:1.5px solid #7aaed4;background:#7aaed420;color:#7aaed4;font-size:13px;cursor:pointer;font-family:inherit;">🌿 AI 반영 받기</button>
+    </div>
+    <div id="ai_refl" style="display:none;background:#62c9a215;border-radius:12px;padding:14px;margin-top:14px;border:1px solid #62c9a240;">
+      <p style="color:#62c9a2;font-size:12px;margin-bottom:6px;">선생님의 반영</p>
+      <p id="ai_refl_txt" style="color:#dce8f2;font-size:13px;line-height:1.85;"></p>
+    </div>`;
+  } else {
+    // Edit / New form
+    inner.innerHTML=`
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:18px;">
+      <div><p style="color:#92aabf;font-size:12px;margin-bottom:2px;">${date}</p>
+        <h2 style="font-family:'Noto Serif KR',serif;color:#62c9a2;font-size:20px;">${date===today()?"오늘의 명상 저널":fmtDate(date)+" 저널"}</h2></div>
+      <button onclick="closeJournal()" style="background:transparent;border:1px solid #1c2b40;border-radius:50%;width:32px;height:32px;color:#92aabf;cursor:pointer;font-size:16px;">✕</button>
+    </div>
+    <!-- 성찰 질문 -->
+    <div style="margin-bottom:18px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+        <p style="color:#92aabf;font-size:12px;">💭 오늘의 성찰 질문</p>
+        <span style="color:#506070;font-size:11px;">직접 작성 · 선택사항</span>
+      </div>
+      <input id="j_reflectQ" value="${j?.reflectQ||""}" placeholder="예시: ${exQ}" style="width:100%;background:#121b2c;border:1px solid #1c2b40;border-radius:10px;padding:10px 13px;color:#dce8f2;font-size:14px;outline:none;font-family:inherit;box-sizing:border-box;"/>
+      <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">
+        ${EXAMPLE_PROMPTS.slice(0,3).map((q,i)=>`<button onclick="document.getElementById('j_reflectQ').value='${q.replace(/'/g,"\\'")}'" style="padding:3px 10px;border-radius:12px;border:1px solid #1c2b40;background:transparent;color:#506070;font-size:11px;cursor:pointer;font-family:inherit;">💡 ${q.slice(0,18)}…</button>`).join("")}
+      </div>
+    </div>
+    <!-- Duration -->
+    <div style="margin-bottom:16px;">
+      <p style="color:#92aabf;font-size:12px;margin-bottom:8px;">명상 시간</p>
+      <div style="display:flex;gap:7px;flex-wrap:wrap;align-items:center;" id="j_dur_row">
+        ${DURATION_OPTIONS.map(n=>`<button onclick="selectJDur(${n})" id="jd_${n}" style="padding:6px 13px;border-radius:16px;border:1.5px solid ${(j?.duration||10)===n?'#62c9a2':'#1c2b40'};background:${(j?.duration||10)===n?'#62c9a220':'transparent'};color:${(j?.duration||10)===n?'#62c9a2':'#92aabf'};font-size:13px;cursor:pointer;font-family:inherit;">${n===60?"60분+":n+"분"}</button>`).join("")}
+      </div>
+      <div id="j_custom_wrap" style="display:${(j?.duration||10)>=60?'flex':'none'};gap:8px;align-items:center;margin-top:10px;">
+        <input type="number" id="j_custom_dur" min="60" max="300" value="${(j?.duration||10)>=60?j?.duration:''}" placeholder="직접 입력" style="width:110px;background:#121b2c;border:1.5px solid #62c9a2;border-radius:10px;padding:7px 12px;color:#62c9a2;font-size:13px;outline:none;font-family:inherit;"/>
+        <span style="color:#506070;font-size:13px;">분</span>
+      </div>
+    </div>
+    <!-- Mood multi-select -->
+    <div style="margin-bottom:16px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <p style="color:#92aabf;font-size:12px;">명상 후 기분</p>
+        <span style="color:#506070;font-size:11px;">중복 선택 가능</span>
+      </div>
+      <div id="j_mood_selected" style="display:${(j?.moods?.length||0)>0?'flex':'none'};gap:6px;flex-wrap:wrap;margin-bottom:8px;padding:8px 10px;background:#62c9a215;border-radius:10px;border:1px solid #62c9a230;"></div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;" id="j_mood_grid">
+        ${MOOD_LIST.map(mood=>`<button onclick="toggleJMood('${mood}')" id="jm_${mood.replace(/[^\w]/g,'_')}" style="padding:5px 11px;border-radius:14px;border:1px solid #1c2b40;background:transparent;color:#92aabf;font-size:12px;cursor:pointer;font-family:inherit;transition:all .15s;">${mood}</button>`).join("")}
+      </div>
+    </div>
+    <!-- Body -->
+    <div style="margin-bottom:14px;">
+      <p style="color:#92aabf;font-size:12px;margin-bottom:8px;">📝 명상 기록</p>
+      <textarea id="j_body" rows="5" placeholder="오늘 명상 중 어떤 것을 경험했나요?" style="width:100%;background:#121b2c;border:1px solid #1c2b40;border-radius:10px;padding:10px 13px;color:#dce8f2;font-size:14px;resize:vertical;outline:none;font-family:inherit;box-sizing:border-box;">${j?.body||""}</textarea>
+    </div>
+    <!-- Insight -->
+    <div style="margin-bottom:22px;">
+      <p style="color:#92aabf;font-size:12px;margin-bottom:8px;">✨ 오늘의 통찰 <span style="color:#506070;">(선택)</span></p>
+      <input id="j_insight" value="${j?.insight||""}" placeholder="명상을 통해 깨달은 것, 일상에 적용하고 싶은 것..." style="width:100%;background:#121b2c;border:1px solid #1c2b40;border-radius:10px;padding:10px 13px;color:#dce8f2;font-size:14px;outline:none;font-family:inherit;box-sizing:border-box;"/>
+    </div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;">
+      ${j?`<button onclick="closeJournal()" style="padding:10px 20px;border-radius:24px;border:1px solid #1c2b40;background:transparent;color:#92aabf;font-size:14px;cursor:pointer;font-family:inherit;">취소</button>`:""}
+      <button onclick="saveJournal('${date}')" id="j_save_btn" style="padding:10px 24px;border-radius:24px;border:1.5px solid #62c9a2;background:#62c9a220;color:#62c9a2;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;">${j?"저장":"저널 저장 & 체크인"}</button>
+    </div>`;
+    // Init selected moods
+    window._jMoods = Array.isArray(j?.moods)?[...j.moods]:(j?.mood?[j.mood]:[]);
+    window._jSelDur = j?.duration||10;
+    refreshJMoodUI(); updateJDurButtons();
+  }
+}
+
+window._jMoods=[]; window._jSelDur=10;
+
+window.selectJDur=n=>{
+  window._jSelDur=n; updateJDurButtons();
+  $("j_custom_wrap").style.display=n===60?"flex":"none";
+};
+function updateJDurButtons(){
+  DURATION_OPTIONS.forEach(n=>{
+    const b=$(`jd_${n}`);if(!b)return;
+    const sel=window._jSelDur===n;
+    b.style.borderColor=sel?"#62c9a2":"#1c2b40";
+    b.style.background=sel?"#62c9a220":"transparent";
+    b.style.color=sel?"#62c9a2":"#92aabf";
+  });
+}
+
+window.toggleJMood=m=>{
+  const idx=window._jMoods.indexOf(m);
+  if(idx>=0) window._jMoods.splice(idx,1); else window._jMoods.push(m);
+  refreshJMoodUI();
+};
+function refreshJMoodUI(){
+  const sel=$("j_mood_selected");
+  if(sel){
+    sel.style.display=window._jMoods.length>0?"flex":"none";
+    sel.innerHTML=window._jMoods.map(m=>`<button onclick="toggleJMood('${m}')" style="padding:3px 10px;border-radius:12px;border:1px solid #62c9a2;background:#62c9a225;color:#62c9a2;font-size:12px;cursor:pointer;font-family:inherit;">${m} ✕</button>`).join("");
+  }
+  MOOD_LIST.forEach(mood=>{
+    const key=mood.replace(/[^\w]/g,"_"), b=$(`jm_${key}`); if(!b)return;
+    const sel2=window._jMoods.includes(mood);
+    b.style.borderColor=sel2?"#62c9a2":"#1c2b40";
+    b.style.background=sel2?"#62c9a220":"transparent";
+    b.style.color=sel2?"#62c9a2":"#92aabf";
+  });
+}
+
+window.saveJournal=async(date)=>{
+  const btn=$("j_save_btn"); if(btn){btn.disabled=true;btn.textContent="저장 중...";}
+  const cd=$("j_custom_dur")?.value;
+  const dur=(window._jSelDur===60&&cd)?(parseInt(cd)||60):window._jSelDur;
+  const entry={
+    uid:currentUser.uid, userName:currentUser.displayName, date,
+    moods:[...window._jMoods], mood:window._jMoods[0]||"",
+    duration:dur,
+    reflectQ:$("j_reflectQ")?.value||"",
+    body:$("j_body")?.value||"",
+    insight:$("j_insight")?.value||"",
+    createdAt:new Date().toISOString(),
+  };
+  await FB.set("journals",`${currentUser.uid}_${date}`,entry);
+  // Update challenge checkedDates
+  const ch=await FB.get("challenges",currentUser.uid);
+  if(ch){
+    const cd2=Array.from(new Set([...(ch.checkedDates||[]),date]));
+    await FB.set("challenges",currentUser.uid,{...ch,checkedDates:cd2,userName:currentUser.displayName});
+  }
+  closeJournal();
+  renderChallenge();
+};
+
+window.deleteJournal=async(date)=>{
+  if(!confirm("이 저널을 삭제할까요?"))return;
+  await FB.del("journals",`${currentUser.uid}_${date}`);
+  const ch=await FB.get("challenges",currentUser.uid);
+  if(ch){
+    const cd=ch.checkedDates?.filter(d=>d!==date)||[];
+    await FB.set("challenges",currentUser.uid,{...ch,checkedDates:cd,userName:currentUser.displayName});
+  }
+  closeJournal(); renderChallenge();
+};
+
+window.editJournal=async(date)=>{
+  const j=await FB.get("journals",`${currentUser.uid}_${date}`);
+  renderJournalInner(date,j,$("journal_inner"));
+};
+
+window.closeJournal=()=>{
+  const m=$("journal_modal"); if(m) m.style.display="none";
+};
+
+window.getAiReflection=async(date)=>{
+  const j=await FB.get("journals",`${currentUser.uid}_${date}`); if(!j)return;
+  const ar=$("ai_refl"),at=$("ai_refl_txt"); if(!ar||!at)return;
+  ar.style.display="block"; at.textContent="생각 중...";
+  try{
+    const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:350,
+        system:"따뜻한 마음챙김 명상 지도자입니다. 학생의 저널을 읽고 2-3문장 반영과 탐구 질문 하나를 한국어로 전해주세요.",
+        messages:[{role:"user",content:`날짜:${date}\n기분:${j.moods?.join(",")}\n명상:${j.duration}분${j.reflectQ?`\n질문:${j.reflectQ}`:""}\n\n${j.body}${j.insight?`\n통찰:${j.insight}`:""}`}]})});
+    const d=await res.json();
+    at.textContent=d.content?.map(c=>c.text||"").join("")||"응답 오류";
+  }catch{at.textContent="AI 응답 오류";}
+};
+
+function renderChallengeSetup() {
+  const m=$("main");if(!m)return;
+  const st=today(), en=addDays(st,29);
+  m.innerHTML=`
+  <div style="max-width:460px;margin:0 auto;animation:fadeUp .4s ease both;">
+    <h2 style="font-family:'Noto Serif KR',serif;color:#d9b065;text-align:center;font-size:22px;margin-bottom:24px;">챌린지 설정</h2>
+    <div style="background:#0d1420;border-radius:16px;border:1px solid #1c2b40;padding:22px;">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px;">
+        <div><p style="color:#92aabf;font-size:12px;margin-bottom:6px;">시작일</p>
+          <input type="date" id="cs_start" value="${st}" style="width:100%;background:#121b2c;border:1px solid #1c2b40;border-radius:8px;padding:9px 12px;color:#dce8f2;font-size:14px;outline:none;font-family:inherit;"/></div>
+        <div><p style="color:#92aabf;font-size:12px;margin-bottom:6px;">종료일</p>
+          <input type="date" id="cs_end" value="${en}" style="width:100%;background:#121b2c;border:1px solid #1c2b40;border-radius:8px;padding:9px 12px;color:#dce8f2;font-size:14px;outline:none;font-family:inherit;"/></div>
+      </div>
+      <p style="color:#92aabf;font-size:12px;margin-bottom:8px;">빠른 설정</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;">
+        ${[7,14,21,30,60,100].map(n=>`<button onclick="setQuick(${n})" style="padding:6px 14px;border-radius:16px;border:1px solid #1c2b40;background:transparent;color:#92aabf;font-size:12px;cursor:pointer;font-family:inherit;">${n}일</button>`).join("")}
+      </div>
+      <div id="cs_preview" style="background:#62c9a215;border-radius:10px;padding:12px;text-align:center;margin-bottom:16px;">
+        <span style="color:#62c9a2;font-weight:700;font-size:22px;">30</span><span style="color:#92aabf;font-size:14px;"> 일 챌린지</span>
+      </div>
+      <button onclick="saveChallenge()" style="width:100%;padding:13px;border-radius:24px;border:1.5px solid #62c9a2;background:#62c9a220;color:#62c9a2;font-size:15px;font-weight:600;cursor:pointer;font-family:inherit;">챌린지 시작하기</button>
+    </div>
+  </div>`;
+  const updatePrev=()=>{
+    const s=$("cs_start")?.value,e=$("cs_end")?.value;
+    if(s&&e){const d=daysBetween(s,e);$("cs_preview").innerHTML=`<span style="color:#62c9a2;font-weight:700;font-size:22px;">${d}</span><span style="color:#92aabf;font-size:14px;"> 일 챌린지</span>`;}
+  };
+  $("cs_start")?.addEventListener("change",updatePrev);
+  $("cs_end")?.addEventListener("change",updatePrev);
+  window.setQuick=n=>{$("cs_end").value=addDays($("cs_start").value,n-1);updatePrev();};
+  window.saveChallenge=async()=>{
+    const s=$("cs_start").value,e=$("cs_end").value;
+    const total=daysBetween(s,e);
+    await FB.set("challenges",currentUser.uid,{uid:currentUser.uid,userName:currentUser.displayName,startDate:s,endDate:e,totalDays:total,checkedDates:[]});
+    renderChallenge();
+  };
+}
+
+/* ══════════════════════════════════════════════════
+   RECORDING TAB
+   ══════════════════════════════════════════════════ */
+async function renderRecord() {
+  const m=$("main");if(!m)return;
+  const myRecs=await FB.list("recordings",[where("uid","==",currentUser.uid),orderBy("createdAt","desc")]);
+  const allRecs=await FB.list("recordings",[orderBy("createdAt","desc")]);
+  m.innerHTML=`
+  <div style="max-width:520px;margin:0 auto;animation:fadeUp .4s ease both;">
+    <h2 style="font-family:'Noto Serif KR',serif;color:#62c9a2;text-align:center;font-size:22px;margin-bottom:4px;">명상 녹음</h2>
+    <p style="color:#92aabf;text-align:center;font-size:13px;margin-bottom:24px;">명상 안내 음성을 녹음하고 공유하세요</p>
+    <!-- Record panel -->
+    <div id="rec_panel" style="background:#0d1420;border-radius:16px;border:1px solid #1c2b40;padding:20px;margin-bottom:24px;">
+      <div style="display:grid;grid-template-columns:1fr auto;gap:10px;margin-bottom:12px;">
+        <input id="rec_title" placeholder="녹음 제목 (선택)" style="background:#121b2c;border:1px solid #1c2b40;border-radius:10px;padding:10px 13px;color:#dce8f2;font-size:14px;outline:none;font-family:inherit;"/>
+        <select id="rec_cat" style="background:#121b2c;border:1px solid #1c2b40;border-radius:10px;padding:10px;color:#dce8f2;font-size:13px;outline:none;font-family:inherit;">
+          ${["명상 안내","가이드 실습","명상 후기","자유 녹음"].map(c=>`<option>${c}</option>`).join("")}
+        </select>
+      </div>
+      <div style="display:flex;gap:3px;align-items:center;justify-content:center;height:44px;margin-bottom:14px;" id="waveform">
+        ${Array.from({length:28}).map((_,i)=>`<div style="width:3px;border-radius:2px;background:#1c2b40;height:${4+Math.sin(i*.9)*8}px;"></div>`).join("")}
+      </div>
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+        <label style="display:flex;gap:8px;align-items:center;cursor:pointer;color:#92aabf;font-size:13px;">
+          <input type="checkbox" id="rec_share" checked style="accent-color:#62c9a2;"/> 커뮤니티에 공유
+        </label>
+        <div>
+          <button id="rec_btn_start" onclick="startRec()" style="padding:10px 22px;border-radius:24px;border:1.5px solid #62c9a2;background:#62c9a220;color:#62c9a2;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;">🎙️ 녹음 시작</button>
+          <button id="rec_btn_stop" onclick="stopRec()" style="display:none;padding:10px 22px;border-radius:24px;border:1.5px solid #d47a88;background:#d47a8820;color:#d47a88;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;">⏹ 저장</button>
+        </div>
+      </div>
+      <p id="rec_elapsed" style="display:none;color:#62c9a2;font-size:14px;text-align:center;margin-top:10px;font-variant-numeric:tabular-nums;">00:00</p>
+    </div>
+    <!-- View tabs -->
+    <div style="display:flex;gap:4px;margin-bottom:18px;">
+      <button id="rv_mine" onclick="switchRecView('mine')" style="padding:8px 18px;border-radius:20px;border:1px solid #62c9a2;background:#62c9a220;color:#62c9a2;font-size:13px;cursor:pointer;font-family:inherit;">내 녹음 (${myRecs.length})</button>
+      <button id="rv_all" onclick="switchRecView('all')" style="padding:8px 18px;border-radius:20px;border:1px solid #1c2b40;background:transparent;color:#92aabf;font-size:13px;cursor:pointer;font-family:inherit;">전체 공유 (${allRecs.filter(r=>r.shared).length})</button>
+    </div>
+    <div id="rec_list_mine">${myRecs.length?myRecs.map(r=>recCard(r,true)).join(""):'<p style="color:#506070;text-align:center;padding:32px 0;font-size:13px;">아직 녹음이 없습니다</p>'}</div>
+    <div id="rec_list_all" style="display:none;">${allRecs.filter(r=>r.shared).length?allRecs.filter(r=>r.shared).map(r=>recCard(r,r.uid===currentUser.uid)).join(""):'<p style="color:#506070;text-align:center;padding:32px 0;font-size:13px;">공유된 녹음이 없습니다</p>'}</div>
+  </div>`;
+}
+
+window.switchRecView=v=>{
+  $("rec_list_mine").style.display=v==="mine"?"block":"none";
+  $("rec_list_all").style.display=v==="all"?"block":"none";
+  $("rv_mine").style.borderColor=v==="mine"?"#62c9a2":"#1c2b40";
+  $("rv_mine").style.background=v==="mine"?"#62c9a220":"transparent";
+  $("rv_mine").style.color=v==="mine"?"#62c9a2":"#92aabf";
+  $("rv_all").style.borderColor=v==="all"?"#62c9a2":"#1c2b40";
+  $("rv_all").style.background=v==="all"?"#62c9a220":"transparent";
+  $("rv_all").style.color=v==="all"?"#62c9a2":"#92aabf";
+};
+
+function recCard(r,mine=false){
+  return `<div style="background:#0d1420;border-radius:14px;border:1px solid #1c2b40;padding:16px;margin-bottom:10px;">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
+      <div style="display:flex;gap:10px;align-items:center;">
+        <div style="width:36px;height:36px;border-radius:50%;background:#62c9a225;border:1.5px solid #62c9a255;display:flex;align-items:center;justify-content:center;color:#62c9a2;font-weight:700;font-size:14px;flex-shrink:0;">${r.userName?.[0]||"?"}</div>
+        <div>
+          <p style="color:#dce8f2;font-size:14px;font-weight:600;margin-bottom:3px;">${r.title}</p>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+            <span style="padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;background:#62c9a220;color:#62c9a2;border:1px solid #62c9a240;">${r.cat}</span>
+            <span style="color:#506070;font-size:11px;">${fmtTime(r.duration||0)}</span>
+            ${!mine?`<span style="color:#92aabf;font-size:11px;">by ${r.userName}</span>`:""}
+            <span style="color:#506070;font-size:11px;">· ${timeAgo(r.createdAt)}</span>
+          </div>
+        </div>
+      </div>
+      <div style="display:flex;gap:6px;">
+        ${r.downloadURL?`<button onclick="playRec('${r.id}','${r.downloadURL}')" style="width:34px;height:34px;border-radius:50%;border:1.5px solid #1c2b40;background:transparent;color:#92aabf;cursor:pointer;font-size:14px;">▶</button>`:""}
+        ${mine?`<button onclick="deleteRec('${r.id}','${r.storagePath||''}')" style="width:34px;height:34px;border-radius:50%;border:1px solid #1c2b40;background:transparent;color:#506070;cursor:pointer;font-size:13px;">✕</button>`:""}
+      </div>
+    </div>
+  </div>`;
+}
+
+window.startRec=async()=>{
+  try{
+    const stream=await navigator.mediaDevices.getUserMedia({audio:true});
+    mediaRecorder=new MediaRecorder(stream); audioChunks=[];
+    mediaRecorder.ondataavailable=e=>audioChunks.push(e.data);
+    mediaRecorder.start();
+    $("rec_btn_start").style.display="none"; $("rec_btn_stop").style.display="inline-block";
+    $("rec_elapsed").style.display="block"; recElapsed=0;
+    recInterval=setInterval(()=>{ recElapsed++; const re=$("rec_elapsed");if(re)re.textContent=fmtTime(recElapsed); },1000);
+    // Animate waveform
+    const wf=$("waveform");
+    if(wf){ window._wfInterval=setInterval(()=>{
+      wf.querySelectorAll("div").forEach((d,i)=>d.style.height=`${10+Math.abs(Math.sin(Date.now()/200+i*.5))*22}px`);
+    },100); }
+  }catch(e){alert("마이크 권한이 필요합니다.");}
+};
+
+window.stopRec=async()=>{
+  clearInterval(recInterval); clearInterval(window._wfInterval);
+  $("rec_btn_start").style.display="inline-block"; $("rec_btn_stop").style.display="none";
+  $("rec_elapsed").style.display="none";
+  if(!mediaRecorder)return;
+  mediaRecorder.onstop=async()=>{
+    const blob=new Blob(audioChunks,{type:"audio/webm"});
+    mediaRecorder.stream.getTracks().forEach(t=>t.stop());
+    const title=$("rec_title")?.value||`${new Date().toLocaleDateString("ko-KR")} 녹음`;
+    const cat=$("rec_cat")?.value||"명상 안내";
+    const shared=$("rec_share")?.checked!==false;
+    const rid=`${currentUser.uid}_${Date.now()}`;
+    const path=`recordings/${currentUser.uid}/${rid}.webm`;
+    // Upload to Firebase Storage
+    const storageRef=ref(storage,path);
+    await uploadBytes(storageRef,blob);
+    const url=await getDownloadURL(storageRef);
+    await FB.set("recordings",rid,{uid:currentUser.uid,userName:currentUser.displayName,title,cat,duration:recElapsed,downloadURL:url,storagePath:path,shared,createdAt:new Date().toISOString()});
+    renderRecord();
+  };
+  mediaRecorder.stop();
+};
+
+window.playRec=(id,url)=>{
+  if(playingId===id){currentAudio?.pause();playingId=null;currentAudio=null;return;}
+  currentAudio?.pause();
+  currentAudio=new Audio(url); currentAudio.play(); playingId=id;
+  currentAudio.onended=()=>{playingId=null;currentAudio=null;};
+};
+
+window.deleteRec=async(id,path)=>{
+  if(!confirm("녹음을 삭제할까요?"))return;
+  if(path){try{await deleteObject(ref(storage,path));}catch(e){}}
+  await FB.del("recordings",id);
+  renderRecord();
+};
+
+/* ══════════════════════════════════════════════════
+   COMMUNITY TAB
+   ══════════════════════════════════════════════════ */
+async function renderCommunity() {
+  const m=$("main");if(!m)return;
+  const posts=await FB.list("posts",[orderBy("createdAt","desc")]);
+  m.innerHTML=`
+  <div style="max-width:520px;margin:0 auto;animation:fadeUp .4s ease both;">
+    <h2 style="font-family:'Noto Serif KR',serif;color:#62c9a2;text-align:center;font-size:22px;margin-bottom:20px;">커뮤니티</h2>
+    <div style="background:#0d1420;border-radius:16px;border:1px solid #1c2b40;padding:18px;margin-bottom:22px;">
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;" id="cat_btns">
+        ${["명상 후기","질문","영감 나눔","일상","가이드 후기"].map((c,i)=>`<button onclick="selectCat('${c}')" id="cat_${i}" style="padding:4px 12px;border-radius:14px;border:1px solid ${i===0?'#62c9a2':'#1c2b40'};background:${i===0?'#62c9a220':'transparent'};color:${i===0?'#62c9a2':'#92aabf'};font-size:12px;cursor:pointer;font-family:inherit;">${c}</button>`).join("")}
+      </div>
+      <textarea id="post_body" rows="3" placeholder="오늘의 명상 경험을 나눠보세요..." style="width:100%;background:#121b2c;border:1px solid #1c2b40;border-radius:10px;padding:10px 12px;color:#dce8f2;font-size:14px;resize:none;outline:none;font-family:inherit;box-sizing:border-box;"></textarea>
+      <div style="display:flex;justify-content:flex-end;margin-top:10px;">
+        <button onclick="submitPost()" style="padding:10px 22px;border-radius:24px;border:1.5px solid #62c9a2;background:#62c9a220;color:#62c9a2;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;">게시하기</button>
+      </div>
+    </div>
+    <div id="posts_list">
+      ${posts.map(p=>postCard(p)).join("")||'<p style="color:#506070;text-align:center;padding:40px 0;font-size:13px;">아직 게시글이 없어요</p>'}
+    </div>
+  </div>`;
+  window._selCat="명상 후기";
+  window.selectCat=c=>{
+    window._selCat=c;
+    document.querySelectorAll("#cat_btns button").forEach((b,i)=>{
+      const cats=["명상 후기","질문","영감 나눔","일상","가이드 후기"];
+      const sel=cats[i]===c;
+      b.style.borderColor=sel?"#62c9a2":"#1c2b40"; b.style.background=sel?"#62c9a220":"transparent"; b.style.color=sel?"#62c9a2":"#92aabf";
+    });
+  };
+  window.submitPost=async()=>{
+    const text=$("post_body")?.value?.trim(); if(!text)return;
+    const pid=`${currentUser.uid}_${Date.now()}`;
+    await FB.set("posts",pid,{uid:currentUser.uid,author:currentUser.displayName,cat:window._selCat,text,likes:[],createdAt:new Date().toISOString()});
+    renderCommunity();
+  };
+}
+
+function postCard(p){
+  const liked=(p.likes||[]).includes(currentUser.uid);
+  return `<div style="background:#0d1420;border-radius:14px;border:1px solid #1c2b40;padding:16px;margin-bottom:12px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+      <div style="display:flex;gap:8px;align-items:center;">
+        <div style="width:28px;height:28px;border-radius:50%;background:#62c9a225;display:flex;align-items:center;justify-content:center;color:#62c9a2;font-weight:700;font-size:12px;">${p.author?.[0]||"?"}</div>
+        <span style="color:#dce8f2;font-size:14px;font-weight:600;">${p.author}</span>
+        <span style="padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;background:#62c9a220;color:#62c9a2;border:1px solid #62c9a240;">${p.cat}</span>
+      </div>
+      <span style="color:#506070;font-size:11px;">${timeAgo(p.createdAt)}</span>
+    </div>
+    <p style="color:#dce8f2;font-size:14px;line-height:1.8;margin-bottom:12px;">${p.text}</p>
+    <div id="ai_r_${p.id}" style="display:none;background:#06080e;border-radius:8px;padding:10px 14px;margin-bottom:12px;border-left:3px solid #d9b065;">
+      <p style="color:#d9b065;font-size:13px;line-height:1.75;" id="ai_rt_${p.id}"></p>
+    </div>
+    <div style="display:flex;gap:8px;">
+      <button onclick="likePost('${p.id}')" style="padding:5px 12px;border-radius:16px;border:1px solid ${liked?'#62c9a2':'#1c2b40'};background:${liked?'#62c9a220':'transparent'};color:${liked?'#62c9a2':'#92aabf'};font-size:13px;cursor:pointer;font-family:inherit;">👍 ${(p.likes||[]).length}</button>
+      <button onclick="getPostAI('${p.id}','${p.cat}',\`${p.text.replace(/`/g,"'")}\`)" style="padding:5px 12px;border-radius:16px;border:1px solid #1c2b40;background:transparent;color:#92aabf;font-size:13px;cursor:pointer;font-family:inherit;">🤖 AI 피드백</button>
+    </div>
+  </div>`;
+}
+
+window.likePost=async(id)=>{
+  const p=await FB.get("posts",id); if(!p)return;
+  const likes=p.likes||[];
+  await FB.set("posts",id,{...p,likes:likes.includes(currentUser.uid)?likes.filter(u=>u!==currentUser.uid):[...likes,currentUser.uid]});
+  renderCommunity();
+};
+window.getPostAI=async(id,cat,text)=>{
+  const r=$(`ai_r_${id}`),t=$(`ai_rt_${id}`); if(!r||!t)return;
+  r.style.display="block"; t.textContent="생각 중...";
+  try{
+    const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:300,
+        system:"따뜻한 마음챙김 선생님입니다. 학생 글에 2-3문장으로 진심 어린 통찰과 격려를 한국어로 전하세요.",
+        messages:[{role:"user",content:`[${cat}] ${text}`}]})});
+    const d=await res.json(); t.textContent=d.content?.map(c=>c.text||"").join("")||"오류";
+  }catch{t.textContent="AI 오류";}
+};
+
+/* ══════════════════════════════════════════════════
+   GUIDE TAB
+   ══════════════════════════════════════════════════ */
+async function renderGuide() {
+  const m=$("main");if(!m)return;
+  const history=await FB.list("guides",[where("uid","==",currentUser.uid),orderBy("createdAt","desc")]);
+  m.innerHTML=`
+  <div style="max-width:520px;margin:0 auto;animation:fadeUp .4s ease both;">
+    <h2 style="font-family:'Noto Serif KR',serif;color:#62c9a2;text-align:center;font-size:22px;margin-bottom:20px;">가이드 실습</h2>
+    <div style="background:#0d1420;border-radius:16px;border:1px solid #1c2b40;padding:20px;margin-bottom:20px;">
+      <p style="color:#92aabf;font-size:12px;margin-bottom:8px;">명상 안내 스크립트 또는 경험 기록</p>
+      <textarea id="g_script" rows="6" placeholder="오늘 스터디 모임에서 5분 호흡 명상을 안내했습니다..." style="width:100%;background:#121b2c;border:1px solid #1c2b40;border-radius:10px;padding:10px 13px;color:#dce8f2;font-size:14px;resize:vertical;outline:none;font-family:inherit;box-sizing:border-box;min-height:120px;"></textarea>
+      <p style="color:#92aabf;font-size:12px;margin:12px 0 6px;">개인 메모 <span style="color:#506070;">(선택)</span></p>
+      <input id="g_notes" placeholder="어려웠던 점, 느낀 점..." style="width:100%;background:#121b2c;border:1px solid #1c2b40;border-radius:10px;padding:10px 13px;color:#dce8f2;font-size:14px;outline:none;font-family:inherit;box-sizing:border-box;"/>
+      <div style="display:flex;justify-content:flex-end;margin-top:14px;">
+        <button onclick="submitGuide()" id="g_btn" style="padding:10px 24px;border-radius:24px;border:1.5px solid #d9b065;background:#d9b06520;color:#d9b065;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;">🤖 AI 피드백 받기</button>
+      </div>
+    </div>
+    <div id="g_feedback" style="display:none;background:#0d1420;border-radius:16px;border:1px solid #d9b06544;padding:20px;margin-bottom:20px;">
+      <p style="color:#d9b065;font-size:14px;margin-bottom:10px;font-family:'Noto Serif KR',serif;">📝 AI 피드백</p>
+      <p id="g_fb_txt" style="color:#dce8f2;font-size:14px;line-height:1.85;white-space:pre-wrap;"></p>
+    </div>
+    <p style="color:#92aabf;font-size:13px;margin-bottom:12px;">이전 제출 기록 (${history.length}개)</p>
+    <div>
+      ${history.map(h=>`
+      <div style="background:#0d1420;border-radius:14px;border:1px solid #1c2b40;padding:16px;margin-bottom:10px;">
+        <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
+          <span style="color:#506070;font-size:12px;">${fmtDT(h.createdAt)}</span>
+        </div>
+        <p style="color:#92aabf;font-size:13px;line-height:1.65;">${h.script?.slice(0,120)||""}...</p>
+        ${h.feedback?`<p style="color:#d9b065;font-size:12px;line-height:1.65;border-top:1px solid #1c2b40;padding-top:8px;margin-top:8px;">💬 ${h.feedback.slice(0,100)}...</p>`:""}
+      </div>`).join("")||'<p style="color:#506070;text-align:center;padding:32px 0;font-size:13px;">가이드 실습 기록이 없습니다</p>'}
+    </div>
+  </div>`;
+  window.submitGuide=async()=>{
+    const script=$("g_script")?.value?.trim(); if(!script)return;
+    const btn=$("g_btn"); btn.disabled=true; btn.textContent="생성 중...";
+    const fb=$("g_feedback"), fbt=$("g_fb_txt"); fb.style.display="block"; fbt.textContent="생각 중...";
+    try{
+      const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:500,
+          system:"마음챙김 명상 교육 전문가입니다. ✅ 잘된 점: (2가지)\n🔧 개선점: (1-2가지)\n💡 다음 제안: (1가지) 형식으로 300자 내외 한국어로.",
+          messages:[{role:"user",content:script+($("g_notes")?.value?`\n메모:${$("g_notes").value}`:"")}]})});
+      const d=await res.json();
+      const reply=d.content?.map(c=>c.text||"").join("")||"오류";
+      fbt.textContent=reply;
+      const gid=`${currentUser.uid}_${Date.now()}`;
+      await FB.set("guides",gid,{uid:currentUser.uid,userName:currentUser.displayName,script,notes:$("g_notes")?.value||"",feedback:reply,createdAt:new Date().toISOString()});
+    }catch{fbt.textContent="오류";}
+    btn.disabled=false; btn.textContent="🤖 AI 피드백 받기";
+  };
+}
+
+/* ══════════════════════════════════════════════════
+   MY PAGE
+   ══════════════════════════════════════════════════ */
+async function renderMyPage() {
+  const m=$("main");if(!m)return;
+  m.innerHTML=`<div style="text-align:center;padding:40px;color:#506070;">불러오는 중...</div>`;
+  const [sessions,recordings,guideHistory,challenge,journals]=await Promise.all([
+    FB.list("sessions",[where("uid","==",currentUser.uid),orderBy("date","desc")]),
+    FB.list("recordings",[where("uid","==",currentUser.uid),orderBy("createdAt","desc")]),
+    FB.list("guides",[where("uid","==",currentUser.uid),orderBy("createdAt","desc")]),
+    FB.get("challenges",currentUser.uid),
+    FB.list("journals",[where("uid","==",currentUser.uid),orderBy("date","desc")]),
+  ]);
+  const totalMins=sessions.reduce((a,s)=>a+(s.duration||0),0);
+  const todaySess=sessions.filter(s=>s.date?.slice(0,10)===today()).length;
+  let streak=0;let d=today();
+  while(journals.find(j=>j.date===d)){streak++;d=addDays(d,-1);}
+  const pct=challenge?Math.round((challenge.checkedDates?.length||0)/challenge.totalDays*100):0;
+
+  m.innerHTML=`
+  <div style="max-width:580px;margin:0 auto;animation:fadeUp .4s ease both;">
+    <!-- Profile -->
+    <div style="display:flex;gap:14px;align-items:center;margin-bottom:24px;padding:16px 18px;background:#0d1420;border-radius:16px;border:1px solid #1c2b40;">
+      <img src="${currentUser.photoURL||''}" width="52" height="52" style="border-radius:50%;border:2px solid #62c9a255;" onerror="this.style.display='none'"/>
+      <div style="flex:1;">
+        <h2 style="color:#dce8f2;font-size:20px;font-family:'Noto Serif KR',serif;margin-bottom:4px;">${currentUser.displayName}</h2>
+        <p style="color:#506070;font-size:12px;margin-bottom:6px;">${currentUser.email}</p>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+          ${challenge?`<span style="padding:2px 10px;border-radius:10px;font-size:11px;font-weight:600;background:#d9b06520;color:#d9b065;border:1px solid #d9b06540;">${challenge.totalDays}일 챌린지</span>`:""}
+          ${streak>0?`<span style="padding:2px 10px;border-radius:10px;font-size:11px;font-weight:600;background:#62c9a220;color:#62c9a2;border:1px solid #62c9a240;">🔥 ${streak}일 연속</span>`:""}
+        </div>
+      </div>
+    </div>
+    <!-- Tabs -->
+    <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:22px;" id="mp_tabs">
+      ${[["overview","📊 개요"],["journals",`📔 저널(${journals.length})`],["sessions",`🧘 세션(${sessions.length})`],["recordings",`🎙️ 녹음(${recordings.length})`],["guides",`👩‍🏫 가이드(${guideHistory.length})`]].map(([id,l],i)=>`
+      <button onclick="switchMPTab('${id}')" id="mpt_${id}" style="padding:7px 14px;border-radius:20px;border:1px solid ${i===0?'#62c9a2':'#1c2b40'};background:${i===0?'#62c9a220':'transparent'};color:${i===0?'#62c9a2':'#92aabf'};font-size:12px;cursor:pointer;font-family:inherit;">${l}</button>`).join("")}
+    </div>
+    <div id="mp_content"></div>
+  </div>`;
+
+  const mpData={sessions,recordings,guideHistory,challenge,journals,totalMins,streak,pct};
+  window._mpData=mpData;
+  renderMPOverview();
+
+  window.switchMPTab=id=>{
+    document.querySelectorAll("[id^='mpt_']").forEach(b=>{
+      const tid=b.id.replace("mpt_",""),sel=tid===id;
+      b.style.borderColor=sel?"#62c9a2":"#1c2b40"; b.style.background=sel?"#62c9a220":"transparent"; b.style.color=sel?"#62c9a2":"#92aabf";
+    });
+    if(id==="overview")  renderMPOverview();
+    if(id==="journals")  renderMPJournals();
+    if(id==="sessions")  renderMPSessions();
+    if(id==="recordings")renderMPRecordings();
+    if(id==="guides")    renderMPGuides();
+  };
+}
+
+function renderMPOverview(){
+  const {sessions,journals,challenge,totalMins,streak,pct}=window._mpData;
+  const avg=sessions.length?Math.round(totalMins/sessions.length):0;
+  const moodCounts=journals.reduce((a,j)=>{(j.moods||[]).forEach(m=>{a[m]=(a[m]||0)+1;});return a;},{});
+  const topMood=Object.entries(moodCounts).sort((a,b)=>b[1]-a[1])[0];
+  $("mp_content").innerHTML=`
+    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:20px;">
+      ${[{l:"총 명상 시간",v:`${totalMins}분`,c:"#62c9a2"},{l:"명상 세션",v:`${sessions.length}회`,c:"#62c9a2"},
+         {l:"저널 작성",v:`${journals.length}개`,c:"#d9b065"},{l:"연속 명상",v:`${streak}일`,c:"#d9b065"},
+         {l:"평균 명상",v:`${avg}분`,c:"#7aaed4"},{l:"자주 느끼는 기분",v:topMood?topMood[0].split(" ")[0]:"—",c:"#7aaed4"}].map(s=>`
+      <div style="background:#0d1420;border-radius:14px;border:1px solid #1c2b40;padding:14px;">
+        <div style="color:${s.c};font-weight:700;font-size:22px;margin-bottom:2px;">${s.v}</div>
+        <div style="color:#506070;font-size:12px;">${s.l}</div>
+      </div>`).join("")}
+    </div>
+    ${challenge?`<div style="background:#0d1420;border-radius:14px;border:1px solid #1c2b40;padding:16px;margin-bottom:16px;">
+      <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
+        <span style="color:#92aabf;font-size:13px;">${challenge.totalDays}일 챌린지</span>
+        <span style="color:#d9b065;font-weight:700;">${challenge.checkedDates?.length||0}/${challenge.totalDays}일</span>
+      </div>
+      <div style="height:8px;background:#1c2b40;border-radius:4px;"><div style="height:8px;width:${pct}%;background:linear-gradient(90deg,#3d8a6a,#d9b065);border-radius:4px;"></div></div>
+    </div>`:""}
+    ${journals.slice(0,3).map(j=>`
+    <div onclick="openMyJournal('${j.date}')" style="background:#0d1420;border-radius:14px;border:1px solid #1c2b40;padding:14px;margin-bottom:10px;cursor:pointer;">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px;align-items:center;">
+        <span style="color:#62c9a2;font-size:13px;font-weight:600;">${fmtDate(j.date)}</span>
+        ${(j.moods||[]).slice(0,2).map(m=>`<span style="padding:2px 8px;border-radius:10px;font-size:10px;background:#62c9a220;color:#62c9a2;">${m}</span>`).join("")}
+        <span style="padding:2px 8px;border-radius:10px;font-size:10px;background:#7aaed420;color:#7aaed4;">${j.duration}분</span>
+      </div>
+      ${j.body?`<p style="color:#92aabf;font-size:13px;line-height:1.6;">${j.body.slice(0,80)}...</p>`:""}
+    </div>`).join("")}`;
+  window.openMyJournal=date=>{
+    currentTab="challenge"; render();
+    setTimeout(()=>openJournal(date),800);
+  };
+}
+
+function renderMPJournals(){
+  const {journals}=window._mpData;
+  $("mp_content").innerHTML=journals.length?journals.map(j=>`
+    <div style="background:#0d1420;border-radius:14px;border:1px solid #1c2b40;padding:16px;margin-bottom:12px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+          <span style="color:#62c9a2;font-size:15px;font-weight:600;font-family:'Noto Serif KR',serif;">${fmtDate(j.date)}</span>
+          ${(j.moods||[]).map(m=>`<span style="padding:2px 8px;border-radius:10px;font-size:10px;background:#62c9a220;color:#62c9a2;">${m}</span>`).join("")}
+          <span style="padding:2px 8px;border-radius:10px;font-size:10px;background:#7aaed420;color:#7aaed4;">${j.duration}분</span>
+        </div>
+        <button onclick="openJournalFromMP('${j.date}')" style="padding:5px 12px;border-radius:16px;border:1px solid #1c2b40;background:transparent;color:#92aabf;font-size:12px;cursor:pointer;font-family:inherit;">열기/수정</button>
+      </div>
+      ${j.body?`<div style="background:#121b2c;border-radius:10px;padding:10px 14px;margin-bottom:8px;"><p style="color:#dce8f2;font-size:13px;line-height:1.75;white-space:pre-wrap;">${j.body.slice(0,200)}${j.body.length>200?"...":""}</p></div>`:""}
+      ${j.insight?`<div style="background:#d9b06515;border-radius:8px;padding:8px 12px;border:1px solid #d9b06530;"><p style="color:#d9b065;font-size:12px;">✨ ${j.insight}</p></div>`:""}
+    </div>`).join(""):'<p style="color:#506070;text-align:center;padding:40px 0;font-size:13px;">저널이 없습니다</p>';
+  window.openJournalFromMP=date=>{currentTab="challenge";render();setTimeout(()=>openJournal(date),800);};
+}
+
+function renderMPSessions(){
+  const {sessions}=window._mpData;
+  $("mp_content").innerHTML=sessions.length?`<div style="display:flex;flex-direction:column;gap:8px;">${sessions.map(s=>`
+    <div style="display:flex;justify-content:space-between;align-items:center;background:#121b2c;border-radius:10px;padding:10px 14px;border:1px solid #1c2b40;">
+      <span style="color:#92aabf;font-size:13px;">${fmtDT(s.date)}</span>
+      <span style="padding:3px 10px;border-radius:10px;font-size:11px;font-weight:600;background:#62c9a220;color:#62c9a2;border:1px solid #62c9a240;">${s.duration}분</span>
+    </div>`).join("")}</div>`:'<p style="color:#506070;text-align:center;padding:40px 0;font-size:13px;">세션이 없습니다</p>';
+}
+
+function renderMPRecordings(){
+  const {recordings}=window._mpData;
+  $("mp_content").innerHTML=recordings.length?recordings.map(r=>`
+    <div style="background:#0d1420;border-radius:14px;border:1px solid #1c2b40;padding:14px;margin-bottom:10px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <div>
+          <p style="color:#dce8f2;font-size:14px;font-weight:600;margin-bottom:4px;">${r.title}</p>
+          <div style="display:flex;gap:6px;">
+            <span style="padding:2px 8px;border-radius:10px;font-size:10px;background:#62c9a220;color:#62c9a2;">${r.cat}</span>
+            <span style="color:#506070;font-size:11px;">${fmtTime(r.duration||0)}</span>
+            <span style="color:#506070;font-size:11px;">· ${fmtDT(r.createdAt)}</span>
+            ${r.shared?`<span style="padding:2px 8px;border-radius:10px;font-size:10px;background:#7aaed420;color:#7aaed4;">공개</span>`:`<span style="padding:2px 8px;border-radius:10px;font-size:10px;background:#1c2b40;color:#506070;">비공개</span>`}
+          </div>
+        </div>
+        ${r.downloadURL?`<button onclick="playRec('${r.id}','${r.downloadURL}')" style="width:34px;height:34px;border-radius:50%;border:1.5px solid #62c9a2;background:#62c9a220;color:#62c9a2;cursor:pointer;font-size:14px;">▶</button>`:""}
+      </div>
+    </div>`).join(""):'<p style="color:#506070;text-align:center;padding:40px 0;font-size:13px;">녹음이 없습니다</p>';
+}
+
+function renderMPGuides(){
+  const {guideHistory}=window._mpData;
+  $("mp_content").innerHTML=guideHistory.length?guideHistory.map(h=>`
+    <div style="background:#0d1420;border-radius:14px;border:1px solid #1c2b40;padding:16px;margin-bottom:10px;">
+      <span style="color:#506070;font-size:12px;display:block;margin-bottom:8px;">${fmtDT(h.createdAt)}</span>
+      <p style="color:#92aabf;font-size:13px;line-height:1.65;margin-bottom:${h.feedback?'8px':'0'};">${h.script?.slice(0,150)||""}...</p>
+      ${h.feedback?`<div style="background:#d9b06515;border-radius:8px;padding:8px 12px;border:1px solid #d9b06530;margin-top:8px;"><p style="color:#d9b065;font-size:12px;line-height:1.65;">${h.feedback.slice(0,120)}...</p></div>`:""}
+    </div>`).join(""):'<p style="color:#506070;text-align:center;padding:40px 0;font-size:13px;">가이드 기록이 없습니다</p>';
+}
+
+/* ══════════════════════════════════════════════════
+   ADMIN TAB
+   ══════════════════════════════════════════════════ */
+async function renderAdmin() {
+  const m=$("main");if(!m)return;
+  if(!isAdmin()){m.innerHTML=`<p style="color:#d47a88;text-align:center;padding:40px;">관리자 권한이 없습니다.<br><small style="color:#506070;">ADMIN_EMAILS 배열에 이메일을 추가하세요</small></p>`;return;}
+  m.innerHTML=`<div style="text-align:center;padding:40px;color:#506070;">데이터 불러오는 중...</div>`;
+  const [users,challenges,sessions,recordings,journals,guides,posts]=await Promise.all([
+    FB.list("users"),FB.list("challenges"),FB.list("sessions"),
+    FB.list("recordings"),FB.list("journals"),FB.list("guides"),FB.list("posts"),
+  ]);
+  const totalCheckins=challenges.reduce((a,c)=>a+(c.checkedDates?.length||0),0);
+  const avgPct=challenges.length?Math.round(challenges.reduce((a,c)=>a+(c.checkedDates?.length||0)/(c.totalDays||30),0)/challenges.length*100):0;
+
+  m.innerHTML=`
+  <div style="max-width:640px;margin:0 auto;animation:fadeUp .4s ease both;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+      <h2 style="font-family:'Noto Serif KR',serif;color:#62c9a2;font-size:22px;">교수자 대시보드</h2>
+      <button onclick="renderAdmin()" style="padding:6px 14px;border-radius:20px;border:1px solid #1c2b40;background:transparent;color:#92aabf;font-size:12px;cursor:pointer;font-family:inherit;">새로고침</button>
+    </div>
+    <!-- Sub tabs -->
+    <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:22px;" id="admin_tabs">
+      ${[["overview","📊 개요"],["students","👥 학생"],["journals_a","📔 저널"],["posts_a","💬 게시글"],["guides_a","👩‍🏫 가이드"]].map(([id,l],i)=>`
+      <button onclick="switchAdminTab('${id}')" id="at_${id}" style="padding:7px 14px;border-radius:20px;border:1px solid ${i===0?'#62c9a2':'#1c2b40'};background:${i===0?'#62c9a220':'transparent'};color:${i===0?'#62c9a2':'#92aabf'};font-size:12px;cursor:pointer;font-family:inherit;">${l}</button>`).join("")}
+    </div>
+    <div id="admin_content"></div>
+  </div>`;
+
+  const adminData={users,challenges,sessions,recordings,journals,guides,posts,totalCheckins,avgPct};
+  window._adminData=adminData;
+  renderAdminOverview();
+
+  window.switchAdminTab=id=>{
+    document.querySelectorAll("[id^='at_']").forEach(b=>{
+      const tid=b.id.replace("at_",""),sel=tid===id;
+      b.style.borderColor=sel?"#62c9a2":"#1c2b40"; b.style.background=sel?"#62c9a220":"transparent"; b.style.color=sel?"#62c9a2":"#92aabf";
+    });
+    if(id==="overview")  renderAdminOverview();
+    if(id==="students")  renderAdminStudents();
+    if(id==="journals_a")renderAdminJournals();
+    if(id==="posts_a")   renderAdminPosts();
+    if(id==="guides_a")  renderAdminGuides();
+  };
+}
+
+function renderAdminOverview(){
+  const {challenges,sessions,recordings,journals,guides,posts,totalCheckins,avgPct}=window._adminData;
+  $("admin_content").innerHTML=`
+    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:20px;">
+      ${[{l:"참여 학생",v:challenges.length+"명",c:"#62c9a2"},{l:"총 체크인",v:totalCheckins+"회",c:"#d9b065"},
+         {l:"평균 진행률",v:avgPct+"%",c:"#62c9a2"},{l:"저널 작성",v:journals.length+"개",c:"#7aaed4"},
+         {l:"녹음 업로드",v:recordings.length+"개",c:"#a47ad4"},{l:"가이드 제출",v:guides.length+"개",c:"#d47a88"}].map(s=>`
+      <div style="background:#0d1420;border-radius:14px;border:1px solid #1c2b40;padding:14px;">
+        <div style="color:${s.c};font-weight:700;font-size:24px;margin-bottom:2px;">${s.v}</div>
+        <div style="color:#506070;font-size:12px;">${s.l}</div>
+      </div>`).join("")}
+    </div>
+    <div style="background:#0d1420;border-radius:14px;border:1px solid #1c2b40;padding:16px;">
+      <p style="color:#92aabf;font-size:13px;margin-bottom:14px;">학생별 챌린지 진행률</p>
+      ${challenges.sort((a,b)=>(b.checkedDates?.length/b.totalDays)-(a.checkedDates?.length/a.totalDays)).map(u=>{
+        const ug=window._adminData.guides.filter(g=>g.uid===u.uid).length;
+        const ur=window._adminData.recordings.filter(r=>r.uid===u.uid).length;
+        return `<div style="margin-bottom:14px;">
+          <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+            <div style="display:flex;gap:8px;align-items:center;">
+              <span style="color:#dce8f2;font-size:13px;">${u.userName||u.uid}</span>
+              ${ug>0?`<span style="padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;background:#d9b06520;color:#d9b065;border:1px solid #d9b06540;">가이드 ${ug}</span>`:""}
+              ${ur>0?`<span style="padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;background:#a47ad420;color:#a47ad4;border:1px solid #a47ad440;">녹음 ${ur}</span>`:""}
+            </div>
+            <span style="color:#92aabf;font-size:12px;">${u.checkedDates?.length||0}/${u.totalDays}일 (${Math.round((u.checkedDates?.length||0)/u.totalDays*100)}%)</span>
+          </div>
+          <div style="height:5px;background:#1c2b40;border-radius:3px;">
+            <div style="height:5px;width:${Math.round((u.checkedDates?.length||0)/u.totalDays*100)}%;background:#62c9a2;border-radius:3px;"></div>
+          </div>
+        </div>`;
+      }).join("")}
+    </div>`;
+}
+
+function renderAdminStudents(){
+  const {challenges,guides,recordings,journals}=window._adminData;
+  $("admin_content").innerHTML=challenges.map(u=>{
+    const ug=guides.filter(g=>g.uid===u.uid).length;
+    const ur=recordings.filter(r=>r.uid===u.uid).length;
+    const uj=journals.filter(j=>j.uid===u.uid).length;
+    const pct=Math.round((u.checkedDates?.length||0)/u.totalDays*100);
+    return `<div style="background:#0d1420;border-radius:14px;border:1px solid #1c2b40;padding:16px;margin-bottom:12px;">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
+        <div style="width:40px;height:40px;border-radius:50%;background:#62c9a225;display:flex;align-items:center;justify-content:center;color:#62c9a2;font-weight:700;font-size:16px;flex-shrink:0;">${u.userName?.[0]||"?"}</div>
+        <div style="flex:1;">
+          <p style="color:#dce8f2;font-weight:600;font-size:15px;margin-bottom:2px;">${u.userName}</p>
+          <p style="color:#506070;font-size:12px;">${fmtDate(u.startDate)} ~ ${fmtDate(u.endDate)}</p>
+        </div>
+        <div style="text-align:right;">
+          <div style="color:#62c9a2;font-weight:700;font-size:20px;">${u.checkedDates?.length||0}일</div>
+          <div style="color:#506070;font-size:11px;">/${u.totalDays}일</div>
+        </div>
+      </div>
+      <div style="height:6px;background:#1c2b40;border-radius:3px;margin-bottom:14px;">
+        <div style="height:6px;width:${pct}%;background:#62c9a2;border-radius:3px;"></div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;">
+        ${[{i:"📔",l:"저널",v:uj,c:"#7aaed4"},{i:"👩‍🏫",l:"가이드",v:ug,c:"#d9b065"},{i:"🎙️",l:"녹음",v:ur,c:"#a47ad4"},{i:"📅",l:"체크인",v:u.checkedDates?.length||0,c:"#62c9a2"}].map(s=>`
+        <div style="background:#121b2c;border-radius:10px;padding:8px 6px;text-align:center;border:1px solid #1c2b40;">
+          <div style="font-size:14px;margin-bottom:3px;">${s.i}</div>
+          <div style="color:${s.c};font-weight:700;font-size:16px;">${s.v}</div>
+          <div style="color:#2a3a4a;font-size:10px;margin-top:2px;line-height:1.3;">${s.l}</div>
+        </div>`).join("")}
+      </div>
+    </div>`;
+  }).join("")||'<p style="color:#506070;text-align:center;padding:40px 0;font-size:13px;">학생 데이터가 없습니다</p>';
+}
+
+function renderAdminJournals(){
+  const {journals}=window._adminData;
+  const byUser=journals.reduce((a,j)=>{(a[j.uid]=a[j.uid]||{name:j.userName,items:[]}).items.push(j);return a;},{});
+  $("admin_content").innerHTML=`<p style="color:#92aabf;font-size:13px;margin-bottom:14px;">저널 현황 (날짜·기분·시간만 표시, 내용 비공개)</p>`+
+    Object.entries(byUser).map(([uid,{name,items}])=>`
+    <div style="background:#0d1420;border-radius:14px;border:1px solid #1c2b40;padding:16px;margin-bottom:12px;">
+      <div style="display:flex;gap:10px;align-items:center;margin-bottom:10px;">
+        <span style="color:#dce8f2;font-size:14px;font-weight:600;">${name}</span>
+        <span style="padding:2px 8px;border-radius:10px;font-size:10px;background:#62c9a220;color:#62c9a2;">${items.length}개 작성</span>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        ${items.map(j=>`<div style="background:#121b2c;border-radius:8px;padding:4px 10px;border:1px solid #1c2b40;">
+          <span style="color:#92aabf;font-size:11px;">${j.date}</span>
+          ${j.moods?.[0]?`<span style="color:#506070;font-size:10px;margin-left:4px;">${j.moods[0].split(" ")[0]}</span>`:""}
+        </div>`).join("")}
+      </div>
+    </div>`).join("")||'<p style="color:#506070;text-align:center;padding:32px 0;font-size:13px;">저널 없음</p>';
+}
+
+function renderAdminPosts(){
+  const {posts}=window._adminData;
+  $("admin_content").innerHTML=posts.sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt)).map(p=>`
+    <div style="background:#0d1420;border-radius:12px;border:1px solid #1c2b40;padding:14px;margin-bottom:10px;">
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">
+        <span style="color:#dce8f2;font-size:13px;font-weight:600;">${p.author}</span>
+        <span style="padding:2px 8px;border-radius:10px;font-size:10px;background:#62c9a220;color:#62c9a2;">${p.cat}</span>
+        <span style="color:#506070;font-size:11px;margin-left:auto;">${timeAgo(p.createdAt)}</span>
+      </div>
+      <p style="color:#92aabf;font-size:13px;line-height:1.65;">${p.text?.slice(0,150)||""}${(p.text?.length||0)>150?"...":""}</p>
+    </div>`).join("")||'<p style="color:#506070;text-align:center;padding:32px 0;font-size:13px;">게시글 없음</p>';
+}
+
+function renderAdminGuides(){
+  const {guides}=window._adminData;
+  $("admin_content").innerHTML=guides.sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt)).map(g=>`
+    <div style="background:#0d1420;border-radius:12px;border:1px solid #1c2b40;padding:14px;margin-bottom:10px;">
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">
+        <span style="color:#dce8f2;font-size:13px;font-weight:600;">${g.userName}</span>
+        <span style="color:#506070;font-size:11px;margin-left:auto;">${timeAgo(g.createdAt)}</span>
+      </div>
+      <p style="color:#92aabf;font-size:13px;">${g.script?.slice(0,120)||""}...</p>
+    </div>`).join("")||'<p style="color:#506070;text-align:center;padding:32px 0;font-size:13px;">가이드 제출 없음</p>';
+}
+
+/* ══════════════════════════════════════════════════
+   CSS ANIMATIONS
+   ══════════════════════════════════════════════════ */
+</script>
+
+<style>
+  @keyframes fadeUp { from{opacity:0;transform:translateY(16px);}to{opacity:1;transform:translateY(0);} }
+  @keyframes fadeIn { from{opacity:0;}to{opacity:1;} }
+  @keyframes spin   { to{transform:rotate(360deg);} }
+  @keyframes ripple { 0%{transform:scale(1);opacity:.5;}100%{transform:scale(3);opacity:0;} }
+  @keyframes slideUp{ from{opacity:0;transform:translateY(40px);}to{opacity:1;transform:translateY(0);} }
+  * { box-sizing: border-box; }
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: #06080e; }
+  ::-webkit-scrollbar-thumb { background: #1c2b40; border-radius: 2px; }
+  input[type=date]::-webkit-calendar-picker-indicator { filter: invert(0.5); }
+</style>
+</head>
+<body></body>
+</html>
