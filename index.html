@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>마음챙김 명상 플랫폼</title>
+<title>마음챙김 명상_선문대 자연의학과</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700&family=Noto+Serif+KR:wght@300;400;600;700&display=swap" rel="stylesheet"/>
 
@@ -151,69 +151,106 @@ function render() {
 }
 
 // 인앱 브라우저 감지 (카카오톡, 인스타그램, 페이스북 등)
-function isInAppBrowser() {
-  const ua = navigator.userAgent;
-  return /KAKAOTALK|kakaotalk|Instagram|FBAN|FBAV|Line\/|NaverApp/i.test(ua);
-}
-
-// 외부 브라우저로 강제 이동 (intent scheme - Android용)
-function openInExternalBrowser() {
-  const url = location.href;
-  // Android: intent scheme으로 Chrome 강제 실행
-  const intentUrl = "intent://" + url.replace(/^https?:\/\//, "") + "#Intent;scheme=https;package=com.android.chrome;end";
-  // iOS: Safari로 열기 (window.open은 막히므로 location 변경)
-  const isAndroid = /Android/i.test(navigator.userAgent);
-  if (isAndroid) {
-    location.href = intentUrl;
-  } else {
-    // iOS는 클립보드 복사 + 안내
-    if (navigator.clipboard) {
-      navigator.clipboard.writeText(url).then(() => {
-        alert("주소가 복사되었습니다!\nSafari를 열고 붙여넣기 해주세요.\n\n" + url);
-      });
-    } else {
-      alert("Safari 브라우저를 열고 아래 주소를 입력해주세요:\n\n" + url);
-    }
-  }
-}
-
-function renderLogin() {
-  // 인앱 브라우저 감지 → 외부 브라우저 안내
-  if (isInAppBrowser()) {
-    const url = location.href;
-    document.body.innerHTML = `
-    <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:#06080e;flex-direction:column;padding:28px;text-align:center;">
-      <div style="font-size:52px;margin-bottom:16px;">🧘</div>
-      <h2 style="font-family:'Noto Serif KR',serif;color:#62c9a2;font-size:22px;margin-bottom:20px;">마음챙김 명상</h2>
-      <div style="background:#0d1420;border:2px solid #d9b065;border-radius:20px;padding:24px;max-width:340px;width:100%;margin-bottom:20px;">
-        <p style="color:#d9b065;font-size:16px;font-weight:700;margin-bottom:10px;">⚠️ 외부 브라우저 필요</p>
-        <p style="color:#92aabf;font-size:13px;line-height:1.85;margin-bottom:20px;">카카오톡 내부 브라우저에서는<br>구글 로그인이 차단됩니다.</p>
-        <button onclick="openInExternalBrowser()" style="width:100%;padding:14px;border-radius:24px;border:none;background:#62c9a2;color:#06080e;font-size:15px;font-weight:700;cursor:pointer;margin-bottom:12px;">🌐 Chrome으로 열기</button>
-        <div style="background:#121b2c;border-radius:12px;padding:14px;margin-bottom:12px;">
-          <p style="color:#506070;font-size:12px;margin-bottom:8px;">📋 직접 복사해서 열기</p>
-          <p style="color:#62c9a2;font-size:12px;font-weight:600;word-break:break-all;" id="url_display">${url}</p>
-          <button onclick="copyUrl('${url}')" style="width:100%;margin-top:8px;padding:8px;border-radius:12px;border:1px solid #62c9a240;background:#62c9a215;color:#62c9a2;font-size:13px;cursor:pointer;">주소 복사하기</button>
-        </div>
-        <p style="color:#506070;font-size:11px;line-height:1.8;">또는 카카오톡 상단 ··· 메뉴<br>→ <b style="color:#92aabf;">다른 브라우저로 열기</b></p>
-      </div>
-      <div id="copy_msg" style="color:#62c9a2;font-size:13px;display:none;">✅ 복사됐습니다! Chrome/Safari에 붙여넣기 하세요</div>
-    </div>`;
-    return;
-  }
+function renderLogin(msg="") {
   document.body.innerHTML = `
-  <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:radial-gradient(ellipse at 35% 35%,#62c9a209 0%,#06080e 55%);flex-direction:column;gap:0;padding:24px;">
-    <div style="text-align:center;margin-bottom:44px;">
-      <div style="font-size:64px;margin-bottom:18px;filter:drop-shadow(0 0 24px #62c9a255)">🧘</div>
-      <h1 style="font-family:'Noto Serif KR',serif;color:#62c9a2;font-size:30px;letter-spacing:-.5px;margin-bottom:8px;">마음챙김 명상</h1>
-      <p style="color:#92aabf;font-size:14px;line-height:1.7;">대학원 명상 실습 커뮤니티</p>
+  <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:radial-gradient(ellipse at 35% 35%,#62c9a209 0%,#06080e 55%);flex-direction:column;padding:24px;">
+    <div style="text-align:center;margin-bottom:32px;">
+      <div style="font-size:64px;margin-bottom:16px;filter:drop-shadow(0 0 24px #62c9a255)">🧘</div>
+      <h1 style="font-family:'Noto Serif KR',serif;color:#62c9a2;font-size:28px;margin-bottom:6px;">마음챙김 명상</h1>
+      <p style="color:#92aabf;font-size:13px;">대학원 명상 실습 커뮤니티</p>
     </div>
-    <button onclick="loginGoogle()" style="display:flex;align-items:center;gap:12px;padding:14px 28px;border-radius:14px;border:1.5px solid #1c2b40;background:#0d1420;color:#dce8f2;font-size:15px;font-weight:600;cursor:pointer;">
-      <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" width="22" height="22"/>
-      Google 계정으로 시작하기
-    </button>
-    <p style="color:#2a3a4a;font-size:11px;margin-top:18px;">구글 계정으로 1클릭 로그인 · 별도 가입 불필요</p>
-    <div id="login_msg" style="margin-top:16px;color:#506070;font-size:13px;"></div>
+    <div style="background:#0d1420;border:1px solid #1c2b40;border-radius:20px;padding:28px;width:100%;max-width:360px;">
+      <div style="display:flex;gap:0;margin-bottom:22px;background:#121b2c;border-radius:12px;padding:3px;">
+        <button onclick="showTab('login')" id="tab_login" style="flex:1;padding:9px;border-radius:10px;border:none;background:#62c9a2;color:#06080e;font-size:14px;font-weight:700;cursor:pointer;">로그인</button>
+        <button onclick="showTab('signup')" id="tab_signup" style="flex:1;padding:9px;border-radius:10px;border:none;background:transparent;color:#506070;font-size:14px;cursor:pointer;">회원가입</button>
+      </div>
+      ${msg ? `<div style="background:#d47a8820;border:1px solid #d47a8840;border-radius:10px;padding:10px 14px;margin-bottom:16px;color:#d47a88;font-size:13px;">${msg}</div>` : ""}
+      <div id="auth_form_login">
+        <input id="email_l" type="email" placeholder="이메일" autocomplete="email" style="width:100%;background:#121b2c;border:1px solid #1c2b40;border-radius:10px;padding:12px 14px;color:#dce8f2;font-size:14px;outline:none;box-sizing:border-box;margin-bottom:10px;"/>
+        <input id="pw_l" type="password" placeholder="비밀번호" autocomplete="current-password" style="width:100%;background:#121b2c;border:1px solid #1c2b40;border-radius:10px;padding:12px 14px;color:#dce8f2;font-size:14px;outline:none;box-sizing:border-box;margin-bottom:16px;"/>
+        <button onclick="doEmailLogin()" style="width:100%;padding:13px;border-radius:24px;border:none;background:#62c9a2;color:#06080e;font-size:15px;font-weight:700;cursor:pointer;margin-bottom:10px;">로그인</button>
+        <button onclick="doForgotPassword()" style="width:100%;padding:8px;border-radius:12px;border:none;background:transparent;color:#506070;font-size:12px;cursor:pointer;">비밀번호를 잊으셨나요?</button>
+      </div>
+      <div id="auth_form_signup" style="display:none;">
+        <input id="name_s" type="text" placeholder="이름 (표시될 이름)" autocomplete="name" style="width:100%;background:#121b2c;border:1px solid #1c2b40;border-radius:10px;padding:12px 14px;color:#dce8f2;font-size:14px;outline:none;box-sizing:border-box;margin-bottom:10px;"/>
+        <input id="email_s" type="email" placeholder="이메일" autocomplete="email" style="width:100%;background:#121b2c;border:1px solid #1c2b40;border-radius:10px;padding:12px 14px;color:#dce8f2;font-size:14px;outline:none;box-sizing:border-box;margin-bottom:10px;"/>
+        <input id="pw_s" type="password" placeholder="비밀번호 (6자 이상)" autocomplete="new-password" style="width:100%;background:#121b2c;border:1px solid #1c2b40;border-radius:10px;padding:12px 14px;color:#dce8f2;font-size:14px;outline:none;box-sizing:border-box;margin-bottom:16px;"/>
+        <button onclick="doEmailSignup()" style="width:100%;padding:13px;border-radius:24px;border:none;background:#62c9a2;color:#06080e;font-size:15px;font-weight:700;cursor:pointer;">가입하기</button>
+      </div>
+      <div id="auth_msg" style="margin-top:12px;text-align:center;font-size:13px;color:#506070;"></div>
+    </div>
+    <p style="color:#2a3a4a;font-size:11px;margin-top:18px;">카카오톡·모바일·PC 모두 지원</p>
   </div>`;
+}
+
+function showTab(tab) {
+  const isLogin = tab === "login";
+  $("auth_form_login").style.display = isLogin ? "block" : "none";
+  $("auth_form_signup").style.display = isLogin ? "none" : "block";
+  $("tab_login").style.background = isLogin ? "#62c9a2" : "transparent";
+  $("tab_login").style.color = isLogin ? "#06080e" : "#506070";
+  $("tab_login").style.fontWeight = isLogin ? "700" : "400";
+  $("tab_signup").style.background = isLogin ? "transparent" : "#62c9a2";
+  $("tab_signup").style.color = isLogin ? "#506070" : "#06080e";
+  $("tab_signup").style.fontWeight = isLogin ? "400" : "700";
+}
+
+function setAuthMsg(txt, isErr=true) {
+  const el = $("auth_msg"); if(!el) return;
+  el.textContent = txt;
+  el.style.color = isErr ? "#d47a88" : "#62c9a2";
+}
+
+async function doEmailLogin() {
+  const email = $("email_l")?.value?.trim();
+  const pw = $("pw_l")?.value;
+  if(!email || !pw) { setAuthMsg("이메일과 비밀번호를 입력해주세요."); return; }
+  setAuthMsg("로그인 중...", false);
+  try {
+    await auth.signInWithEmailAndPassword(email, pw);
+  } catch(e) {
+    const msgs = {
+      "auth/user-not-found": "등록되지 않은 이메일입니다.",
+      "auth/wrong-password": "비밀번호가 틀렸습니다.",
+      "auth/invalid-email": "이메일 형식이 올바르지 않습니다.",
+      "auth/too-many-requests": "로그인 시도가 너무 많습니다. 잠시 후 다시 시도해주세요.",
+      "auth/invalid-credential": "이메일 또는 비밀번호가 올바르지 않습니다.",
+    };
+    setAuthMsg(msgs[e.code] || "로그인 실패: " + e.message);
+  }
+}
+
+async function doEmailSignup() {
+  const name  = $("name_s")?.value?.trim();
+  const email = $("email_s")?.value?.trim();
+  const pw    = $("pw_s")?.value;
+  if(!name)  { setAuthMsg("이름을 입력해주세요."); return; }
+  if(!email) { setAuthMsg("이메일을 입력해주세요."); return; }
+  if(!pw || pw.length < 6) { setAuthMsg("비밀번호는 6자 이상이어야 합니다."); return; }
+  setAuthMsg("가입 중...", false);
+  try {
+    const cred = await auth.createUserWithEmailAndPassword(email, pw);
+    await cred.user.updateProfile({ displayName: name });
+    // onAuthStateChanged가 자동으로 render() 호출
+  } catch(e) {
+    const msgs = {
+      "auth/email-already-in-use": "이미 사용 중인 이메일입니다.",
+      "auth/invalid-email": "이메일 형식이 올바르지 않습니다.",
+      "auth/weak-password": "비밀번호가 너무 약합니다.",
+    };
+    setAuthMsg(msgs[e.code] || "가입 실패: " + e.message);
+  }
+}
+
+async function doForgotPassword() {
+  const email = $("email_l")?.value?.trim();
+  if(!email) { setAuthMsg("위에 이메일을 먼저 입력해주세요."); return; }
+  try {
+    await auth.sendPasswordResetEmail(email);
+    setAuthMsg("✅ 비밀번호 재설정 이메일을 보냈습니다.", false);
+  } catch(e) {
+    setAuthMsg("이메일 전송 실패: " + e.message);
+  }
 }
 
 function renderApp() {
@@ -273,82 +310,16 @@ function loadTab(id) {
 /* ══════════════════════════════════════════════════
    AUTH
    ══════════════════════════════════════════════════ */
-function loginGoogle() {
-  if (isMobile()) {
-    const lm = $("login_msg"); if(lm) lm.textContent = "구글 로그인 페이지로 이동 중...";
-    auth.signInWithRedirect(gp);
-  } else {
-    auth.signInWithPopup(gp).catch(e => alert("로그인 실패: "+e.message));
-  }
-}
-
 function doLogout() {
   auth.signOut();
 }
 
-function copyUrl(url) {
-  const msg = document.getElementById("copy_msg");
-  if (navigator.clipboard) {
-    navigator.clipboard.writeText(url).then(() => {
-      if(msg){ msg.style.display="block"; setTimeout(()=>msg.style.display="none", 3000); }
-    }).catch(() => fallbackCopy(url, msg));
-  } else {
-    fallbackCopy(url, msg);
-  }
-}
-
-function fallbackCopy(url, msg) {
-  const ta = document.createElement("textarea");
-  ta.value = url; ta.style.position="fixed"; ta.style.opacity="0";
-  document.body.appendChild(ta); ta.focus(); ta.select();
-  try {
-    document.execCommand("copy");
-    if(msg){ msg.style.display="block"; setTimeout(()=>msg.style.display="none", 3000); }
-  } catch(e) {
-    alert("주소를 직접 복사해주세요:\n" + url);
-  }
-  document.body.removeChild(ta);
-}
-
-// ── 앱 초기화 ──
-// 순서: getRedirectResult 확인 → onAuthStateChanged 등록
-// 모바일 리다이렉트 후 race condition 완전 방지
-let _authReady = false;
-
-// 로딩 화면 표시 (페이지 최초 진입 시)
-document.body.innerHTML = `
-  <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:#06080e;flex-direction:column;gap:16px;">
-    <div style="font-size:48px;filter:drop-shadow(0 0 20px #62c9a255)">🧘</div>
-    <p style="color:#62c9a2;font-size:14px;letter-spacing:.5px;">불러오는 중...</p>
-  </div>`;
-
-// getRedirectResult: 모바일 리다이렉트 로그인 후 결과 수신
-auth.getRedirectResult()
-  .then(async result => {
-    if (result && result.user) {
-      // 리다이렉트 로그인 성공
-      currentUser = result.user;
-      _authReady = true;
-      await saveUserProfile(result.user);
-      render();
-    }
-    // result.user 없으면 → onAuthStateChanged가 처리
-  })
-  .catch(e => {
-    console.log("getRedirectResult error:", e.code, e.message);
-    // 오류여도 onAuthStateChanged가 이어서 처리
-  })
-  .finally(() => {
-    // getRedirectResult 완료 후 onAuthStateChanged 등록
-    if (!_authReady) {
-      auth.onAuthStateChanged(async user => {
-        if (_authReady) return; // 이미 리다이렉트로 처리된 경우 스킵
-        currentUser = user;
-        if (user) await saveUserProfile(user);
-        render();
-      });
-    }
-  });
+// ── 앱 초기화 (이메일 로그인 방식 - 모바일/카카오톡 완전 호환) ──
+auth.onAuthStateChanged(async user => {
+  currentUser = user;
+  if (user) await saveUserProfile(user);
+  render();
+});
 
 async function saveUserProfile(user) {
   await FB.set("users", user.uid, {
