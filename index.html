@@ -14,7 +14,7 @@ import { getFirestore, collection, doc, setDoc, getDoc, getDocs, query, where, o
   from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject }
   from "https://www.gstatic.com/firebasejs/10.12.0/firebase-storage.js";
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged }
+import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signOut, onAuthStateChanged }
   from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 
 /* ── Firebase 초기화 ── */
@@ -193,16 +193,42 @@ function loadTab(id) {
 /* ══════════════════════════════════════════════════
    AUTH
    ══════════════════════════════════════════════════ */
+
+// 모바일 감지 (카카오톡 인앱브라우저 포함)
+const isMobileBrowser = () => /iPhone|iPad|iPod|Android|KAKAOTALK|kakaotalk/i.test(navigator.userAgent);
+
 window.loginGoogle = async () => {
-  try { await signInWithPopup(auth, gp); }
-  catch(e) { alert("로그인 실패: "+e.message); }
+  try {
+    if (isMobileBrowser()) {
+      // 모바일: 리다이렉트 방식 (팝업 차단 우회)
+      await signInWithRedirect(auth, gp);
+    } else {
+      // PC: 팝업 방식
+      await signInWithPopup(auth, gp);
+    }
+  } catch(e) {
+    alert("로그인 실패: " + e.message);
+  }
 };
+
 window.logout = async () => { await signOut(auth); };
+
+// 리다이렉트 로그인 결과 처리 (모바일에서 돌아왔을 때)
+getRedirectResult(auth).then(async result => {
+  if (result?.user) {
+    currentUser = result.user;
+    await FB.set("users", result.user.uid, {
+      uid: result.user.uid, name: result.user.displayName,
+      email: result.user.email, photoURL: result.user.photoURL,
+      lastLogin: new Date().toISOString(),
+    });
+    render();
+  }
+}).catch(e => console.log("redirect result error:", e));
 
 onAuthStateChanged(auth, async user => {
   currentUser = user;
   if(user) {
-    // 사용자 프로필 Firestore에 저장
     await FB.set("users", user.uid, {
       uid: user.uid, name: user.displayName, email: user.email,
       photoURL: user.photoURL, lastLogin: new Date().toISOString(),
