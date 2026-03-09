@@ -150,25 +150,53 @@ function render() {
   renderApp();
 }
 
-function isKakao() {
-  return /KAKAOTALK|kakaotalk/i.test(navigator.userAgent);
+// 인앱 브라우저 감지 (카카오톡, 인스타그램, 페이스북 등)
+function isInAppBrowser() {
+  const ua = navigator.userAgent;
+  return /KAKAOTALK|kakaotalk|Instagram|FBAN|FBAV|Line\/|NaverApp/i.test(ua);
+}
+
+// 외부 브라우저로 강제 이동 (intent scheme - Android용)
+function openInExternalBrowser() {
+  const url = location.href;
+  // Android: intent scheme으로 Chrome 강제 실행
+  const intentUrl = "intent://" + url.replace(/^https?:\/\//, "") + "#Intent;scheme=https;package=com.android.chrome;end";
+  // iOS: Safari로 열기 (window.open은 막히므로 location 변경)
+  const isAndroid = /Android/i.test(navigator.userAgent);
+  if (isAndroid) {
+    location.href = intentUrl;
+  } else {
+    // iOS는 클립보드 복사 + 안내
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(url).then(() => {
+        alert("주소가 복사되었습니다!\nSafari를 열고 붙여넣기 해주세요.\n\n" + url);
+      });
+    } else {
+      alert("Safari 브라우저를 열고 아래 주소를 입력해주세요:\n\n" + url);
+    }
+  }
 }
 
 function renderLogin() {
-  // 카카오톡 인앱브라우저 감지 → 외부 브라우저로 유도
-  if (isKakao()) {
+  // 인앱 브라우저 감지 → 외부 브라우저 안내
+  if (isInAppBrowser()) {
+    const url = location.href;
     document.body.innerHTML = `
-    <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:#06080e;flex-direction:column;padding:32px;text-align:center;">
-      <div style="font-size:56px;margin-bottom:20px;">🧘</div>
-      <h2 style="font-family:'Noto Serif KR',serif;color:#62c9a2;font-size:22px;margin-bottom:12px;">마음챙김 명상</h2>
-      <div style="background:#0d1420;border:1.5px solid #d9b065;border-radius:16px;padding:24px;max-width:320px;margin-bottom:24px;">
-        <p style="color:#d9b065;font-size:15px;font-weight:700;margin-bottom:10px;">⚠️ 외부 브라우저로 열어주세요</p>
-        <p style="color:#92aabf;font-size:13px;line-height:1.8;margin-bottom:16px;">카카오톡에서는 구글 로그인이 차단됩니다.<br>아래 버튼을 눌러 Chrome이나 Safari로 열어주세요.</p>
-        <button onclick="location.href=location.href" style="width:100%;padding:12px;border-radius:24px;border:1.5px solid #62c9a2;background:#62c9a220;color:#62c9a2;font-size:14px;font-weight:600;cursor:pointer;margin-bottom:8px;">🌐 외부 브라우저로 열기</button>
-        <p style="color:#506070;font-size:11px;line-height:1.7;">안되면: 카카오톡 우측 하단 ··· 메뉴<br>→ <b style="color:#92aabf;">다른 브라우저로 열기</b> 선택</p>
+    <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:#06080e;flex-direction:column;padding:28px;text-align:center;">
+      <div style="font-size:52px;margin-bottom:16px;">🧘</div>
+      <h2 style="font-family:'Noto Serif KR',serif;color:#62c9a2;font-size:22px;margin-bottom:20px;">마음챙김 명상</h2>
+      <div style="background:#0d1420;border:2px solid #d9b065;border-radius:20px;padding:24px;max-width:340px;width:100%;margin-bottom:20px;">
+        <p style="color:#d9b065;font-size:16px;font-weight:700;margin-bottom:10px;">⚠️ 외부 브라우저 필요</p>
+        <p style="color:#92aabf;font-size:13px;line-height:1.85;margin-bottom:20px;">카카오톡 내부 브라우저에서는<br>구글 로그인이 차단됩니다.</p>
+        <button onclick="openInExternalBrowser()" style="width:100%;padding:14px;border-radius:24px;border:none;background:#62c9a2;color:#06080e;font-size:15px;font-weight:700;cursor:pointer;margin-bottom:12px;">🌐 Chrome으로 열기</button>
+        <div style="background:#121b2c;border-radius:12px;padding:14px;margin-bottom:12px;">
+          <p style="color:#506070;font-size:12px;margin-bottom:8px;">📋 직접 복사해서 열기</p>
+          <p style="color:#62c9a2;font-size:12px;font-weight:600;word-break:break-all;" id="url_display">${url}</p>
+          <button onclick="copyUrl('${url}')" style="width:100%;margin-top:8px;padding:8px;border-radius:12px;border:1px solid #62c9a240;background:#62c9a215;color:#62c9a2;font-size:13px;cursor:pointer;">주소 복사하기</button>
+        </div>
+        <p style="color:#506070;font-size:11px;line-height:1.8;">또는 카카오톡 상단 ··· 메뉴<br>→ <b style="color:#92aabf;">다른 브라우저로 열기</b></p>
       </div>
-      <p style="color:#2a3a4a;font-size:11px;">또는 주소를 복사해서 Chrome/Safari에 직접 붙여넣기</p>
-      <p style="color:#506070;font-size:12px;margin-top:8px;background:#121b2c;padding:8px 16px;border-radius:8px;">${location.hostname}</p>
+      <div id="copy_msg" style="color:#62c9a2;font-size:13px;display:none;">✅ 복사됐습니다! Chrome/Safari에 붙여넣기 하세요</div>
     </div>`;
     return;
   }
@@ -258,20 +286,69 @@ function doLogout() {
   auth.signOut();
 }
 
-// 리다이렉트 결과 처리
-auth.getRedirectResult().then(async result => {
-  if (result && result.user) {
-    currentUser = result.user;
-    await saveUserProfile(result.user);
-    render();
+function copyUrl(url) {
+  const msg = document.getElementById("copy_msg");
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(url).then(() => {
+      if(msg){ msg.style.display="block"; setTimeout(()=>msg.style.display="none", 3000); }
+    }).catch(() => fallbackCopy(url, msg));
+  } else {
+    fallbackCopy(url, msg);
   }
-}).catch(e => console.log("redirect:", e.message));
+}
 
-auth.onAuthStateChanged(async user => {
-  currentUser = user;
-  if (user) await saveUserProfile(user);
-  render();
-});
+function fallbackCopy(url, msg) {
+  const ta = document.createElement("textarea");
+  ta.value = url; ta.style.position="fixed"; ta.style.opacity="0";
+  document.body.appendChild(ta); ta.focus(); ta.select();
+  try {
+    document.execCommand("copy");
+    if(msg){ msg.style.display="block"; setTimeout(()=>msg.style.display="none", 3000); }
+  } catch(e) {
+    alert("주소를 직접 복사해주세요:\n" + url);
+  }
+  document.body.removeChild(ta);
+}
+
+// ── 앱 초기화 ──
+// 순서: getRedirectResult 확인 → onAuthStateChanged 등록
+// 모바일 리다이렉트 후 race condition 완전 방지
+let _authReady = false;
+
+// 로딩 화면 표시 (페이지 최초 진입 시)
+document.body.innerHTML = `
+  <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:#06080e;flex-direction:column;gap:16px;">
+    <div style="font-size:48px;filter:drop-shadow(0 0 20px #62c9a255)">🧘</div>
+    <p style="color:#62c9a2;font-size:14px;letter-spacing:.5px;">불러오는 중...</p>
+  </div>`;
+
+// getRedirectResult: 모바일 리다이렉트 로그인 후 결과 수신
+auth.getRedirectResult()
+  .then(async result => {
+    if (result && result.user) {
+      // 리다이렉트 로그인 성공
+      currentUser = result.user;
+      _authReady = true;
+      await saveUserProfile(result.user);
+      render();
+    }
+    // result.user 없으면 → onAuthStateChanged가 처리
+  })
+  .catch(e => {
+    console.log("getRedirectResult error:", e.code, e.message);
+    // 오류여도 onAuthStateChanged가 이어서 처리
+  })
+  .finally(() => {
+    // getRedirectResult 완료 후 onAuthStateChanged 등록
+    if (!_authReady) {
+      auth.onAuthStateChanged(async user => {
+        if (_authReady) return; // 이미 리다이렉트로 처리된 경우 스킵
+        currentUser = user;
+        if (user) await saveUserProfile(user);
+        render();
+      });
+    }
+  });
 
 async function saveUserProfile(user) {
   await FB.set("users", user.uid, {
