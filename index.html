@@ -122,10 +122,18 @@ const FB = {
     let q = db.collection(col);
     filters.forEach(f => {
       if(f.type==="where") q = q.where(f.field, f.op, f.val);
-      if(f.type==="orderBy") q = q.orderBy(f.field, f.dir||"asc");
     });
     const snap = await q.get();
-    return snap.docs.map(d => ({id:d.id, ...d.data()}));
+    let results = snap.docs.map(d => ({id:d.id, ...d.data()}));
+    filters.forEach(f => {
+      if(f.type==="orderBy") {
+        results.sort((a,b) => {
+          const av = a[f.field]||"", bv = b[f.field]||"";
+          return f.dir==="desc" ? (bv>av?1:bv<av?-1:0) : (av>bv?1:av<bv?-1:0);
+        });
+      }
+    });
+    return results;
   },
   async del(col, docId) {
     await db.collection(col).doc(docId).delete();
@@ -142,7 +150,28 @@ function render() {
   renderApp();
 }
 
+function isKakao() {
+  return /KAKAOTALK|kakaotalk/i.test(navigator.userAgent);
+}
+
 function renderLogin() {
+  // 카카오톡 인앱브라우저 감지 → 외부 브라우저로 유도
+  if (isKakao()) {
+    document.body.innerHTML = `
+    <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:#06080e;flex-direction:column;padding:32px;text-align:center;">
+      <div style="font-size:56px;margin-bottom:20px;">🧘</div>
+      <h2 style="font-family:'Noto Serif KR',serif;color:#62c9a2;font-size:22px;margin-bottom:12px;">마음챙김 명상</h2>
+      <div style="background:#0d1420;border:1.5px solid #d9b065;border-radius:16px;padding:24px;max-width:320px;margin-bottom:24px;">
+        <p style="color:#d9b065;font-size:15px;font-weight:700;margin-bottom:10px;">⚠️ 외부 브라우저로 열어주세요</p>
+        <p style="color:#92aabf;font-size:13px;line-height:1.8;margin-bottom:16px;">카카오톡에서는 구글 로그인이 차단됩니다.<br>아래 버튼을 눌러 Chrome이나 Safari로 열어주세요.</p>
+        <button onclick="location.href=location.href" style="width:100%;padding:12px;border-radius:24px;border:1.5px solid #62c9a2;background:#62c9a220;color:#62c9a2;font-size:14px;font-weight:600;cursor:pointer;margin-bottom:8px;">🌐 외부 브라우저로 열기</button>
+        <p style="color:#506070;font-size:11px;line-height:1.7;">안되면: 카카오톡 우측 하단 ··· 메뉴<br>→ <b style="color:#92aabf;">다른 브라우저로 열기</b> 선택</p>
+      </div>
+      <p style="color:#2a3a4a;font-size:11px;">또는 주소를 복사해서 Chrome/Safari에 직접 붙여넣기</p>
+      <p style="color:#506070;font-size:12px;margin-top:8px;background:#121b2c;padding:8px 16px;border-radius:8px;">${location.hostname}</p>
+    </div>`;
+    return;
+  }
   document.body.innerHTML = `
   <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:radial-gradient(ellipse at 35% 35%,#62c9a209 0%,#06080e 55%);flex-direction:column;gap:0;padding:24px;">
     <div style="text-align:center;margin-bottom:44px;">
