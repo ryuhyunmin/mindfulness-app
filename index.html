@@ -88,6 +88,40 @@ const GUIDED_MSGS = [
   {at:450, t:"깊은 평화 속에 머무세요."},
   {at:600, t:"서서히 의식을 현재로 가져오세요."},
 ];
+// ══ 가이드 명상 콘텐츠 ══
+// 녹음 완성 후 url 부분만 교체하시면 됩니다
+// Firebase Storage URL 또는 외부 MP3 URL 모두 가능
+const GUIDED_CONTENT = [
+  {
+    id:"g1", icon:"🌬️", title:"호흡 명상",
+    duration:5, level:"입문",
+    desc:"코끝의 감각에 집중하는 기본 호흡 명상입니다.",
+    url:"",  // ← 여기에 MP3 URL 붙여넣기
+    color:"#62c9a2",
+  },
+  {
+    id:"g2", icon:"🌊", title:"바디스캔",
+    duration:10, level:"초급",
+    desc:"발끝부터 정수리까지 몸의 감각을 천천히 살핍니다.",
+    url:"",  // ← 여기에 MP3 URL 붙여넣기
+    color:"#7aaed4",
+  },
+  {
+    id:"g3", icon:"🌸", title:"자애 명상",
+    duration:15, level:"중급",
+    desc:"나와 타인을 향한 따뜻한 마음을 기르는 명상입니다.",
+    url:"",  // ← 여기에 MP3 URL 붙여넣기
+    color:"#d9b065",
+  },
+  {
+    id:"g4", icon:"🍃", title:"마음챙김 걷기",
+    duration:10, level:"초급",
+    desc:"발걸음 하나하나에 주의를 기울이는 동적 명상입니다.",
+    url:"",  // ← 여기에 MP3 URL 붙여넣기
+    color:"#a47ad4",
+  },
+];
+
 const ADMIN_EMAILS = ["ryutopia79@gmail.com"];
 const KO_MONTHS = ["1월","2월","3월","4월","5월","6월","7월","8월","9월","10월","11월","12월"];
 const KO_DAYS   = ["일","월","화","수","목","금","토"];
@@ -157,7 +191,7 @@ function renderLogin(msg="") {
     <div style="text-align:center;margin-bottom:32px;">
       <div style="font-size:64px;margin-bottom:16px;filter:drop-shadow(0 0 24px #62c9a255)">🧘</div>
       <h1 style="font-family:'Noto Serif KR',serif;color:#62c9a2;font-size:28px;margin-bottom:6px;">마음챙김 명상</h1>
-      <p style="color:#92aabf;font-size:13px;">대학원 명상 실습 커뮤니티</p>
+      <p style="color:#92aabf;font-size:13px;">마음챙김 명상 실습 커뮤니티</p>
     </div>
     <div style="background:#0d1420;border:1px solid #1c2b40;border-radius:20px;padding:28px;width:100%;max-width:360px;">
       <div style="display:flex;gap:0;margin-bottom:22px;background:#121b2c;border-radius:12px;padding:3px;">
@@ -332,39 +366,267 @@ async function saveUserProfile(user) {
 /* ══════════════════════════════════════════════════
    타이머 탭
    ══════════════════════════════════════════════════ */
+// 현재 선택된 가이드 (null이면 자유 명상)
+let selectedGuide = null;
+let guideAudio = null;
+
 function renderTimer() {
   const m = $("main"); if(!m) return;
   m.innerHTML = `
-  <div style="max-width:460px;margin:0 auto;animation:fadeUp .4s ease both;">
-    <h2 style="font-family:'Noto Serif KR',serif;color:#62c9a2;text-align:center;font-size:22px;margin-bottom:4px;">명상 타이머</h2>
-    <p style="color:#92aabf;text-align:center;font-size:13px;margin-bottom:24px;">지금 이 순간에 머무세요</p>
-    <div style="display:flex;gap:10px;margin-bottom:24px;" id="timer_stats"></div>
-    <div id="dur_picker" style="display:flex;gap:7px;justify-content:center;margin-bottom:28px;flex-wrap:wrap;">
-      ${DURATION_OPTIONS.map(n=>`<button onclick="setDur(${n})" id="dur_${n}" style="padding:7px 14px;border-radius:20px;border:1.5px solid ${n===timerDur?'#62c9a2':'#1c2b40'};background:${n===timerDur?'#62c9a220':'transparent'};color:${n===timerDur?'#62c9a2':'#92aabf'};font-size:13px;cursor:pointer;transition:all .2s;">${n===60?"60분+":n+"분"}</button>`).join("")}
+  <div style="max-width:480px;margin:0 auto;animation:fadeUp .4s ease both;">
+    <h2 style="font-family:'Noto Serif KR',serif;color:#62c9a2;text-align:center;font-size:22px;margin-bottom:4px;">명상</h2>
+    <p style="color:#92aabf;text-align:center;font-size:13px;margin-bottom:20px;">지금 이 순간에 머무세요</p>
+    <div style="display:flex;gap:10px;margin-bottom:20px;" id="timer_stats"></div>
+
+    <!-- 모드 선택 탭 -->
+    <div style="display:flex;gap:0;background:#121b2c;border-radius:14px;padding:3px;margin-bottom:20px;">
+      <button onclick="switchTimerMode('guide')" id="mode_guide" style="flex:1;padding:10px;border-radius:12px;border:none;background:#62c9a2;color:#06080e;font-size:13px;font-weight:700;cursor:pointer;">🎧 가이드 명상</button>
+      <button onclick="switchTimerMode('free')"  id="mode_free"  style="flex:1;padding:10px;border-radius:12px;border:none;background:transparent;color:#506070;font-size:13px;cursor:pointer;">⏱ 자유 명상</button>
     </div>
-    <div id="custom_dur_wrap" style="display:none;justify-content:center;gap:8px;align-items:center;margin-bottom:20px;">
-      <input type="number" id="custom_dur" min="60" max="300" placeholder="분 직접 입력" style="width:120px;background:#121b2c;border:1.5px solid #62c9a2;border-radius:10px;padding:8px 12px;color:#62c9a2;font-size:13px;outline:none;"/>
-      <span style="color:#506070;font-size:13px;">분</span>
+
+    <!-- 가이드 명상 섹션 -->
+    <div id="section_guide">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:18px;" id="guide_cards">
+        ${GUIDED_CONTENT.map(g=>`
+        <div onclick="selectGuide('${g.id}')" id="gc_${g.id}" style="background:#0d1420;border-radius:14px;border:2px solid #1c2b40;padding:14px;cursor:pointer;transition:all .2s;position:relative;">
+          <div style="font-size:24px;margin-bottom:6px;">${g.icon}</div>
+          <p style="color:#dce8f2;font-size:14px;font-weight:600;margin-bottom:3px;">${g.title}</p>
+          <p style="color:#506070;font-size:11px;margin-bottom:6px;">${g.duration}분 · ${g.level}</p>
+          <p style="color:#92aabf;font-size:11px;line-height:1.6;">${g.desc}</p>
+          ${g.url ? "" : `<span style="position:absolute;top:8px;right:8px;padding:2px 7px;border-radius:8px;font-size:9px;background:#d9b06530;color:#d9b065;border:1px solid #d9b06550;">준비중</span>`}
+        </div>`).join("")}
+      </div>
+
+      <!-- 선택된 가이드 플레이어 -->
+      <div id="guide_player" style="display:none;background:#0d1420;border-radius:16px;border:1px solid #62c9a244;padding:20px;margin-bottom:16px;">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+          <span id="gp_icon" style="font-size:28px;"></span>
+          <div>
+            <p id="gp_title" style="color:#dce8f2;font-size:16px;font-weight:600;margin-bottom:2px;"></p>
+            <p id="gp_desc" style="color:#92aabf;font-size:12px;"></p>
+          </div>
+          <button onclick="closeGuidePlayer()" style="margin-left:auto;background:transparent;border:none;color:#506070;font-size:20px;cursor:pointer;">✕</button>
+        </div>
+
+        <!-- 진행 바 -->
+        <div style="height:4px;background:#1c2b40;border-radius:2px;margin-bottom:14px;cursor:pointer;" onclick="seekGuideAudio(event,this)" id="gp_progress_bar">
+          <div id="gp_progress" style="height:4px;width:0%;border-radius:2px;background:#62c9a2;transition:width .5s linear;"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:14px;">
+          <span id="gp_cur" style="color:#506070;font-size:11px;">0:00</span>
+          <span id="gp_dur_txt" style="color:#506070;font-size:11px;"></span>
+        </div>
+
+        <div style="display:flex;gap:10px;justify-content:center;align-items:center;">
+          <button onclick="seekGuide(-15)" style="padding:8px 14px;border-radius:20px;border:1px solid #1c2b40;background:transparent;color:#92aabf;font-size:13px;cursor:pointer;">◀◀ 15초</button>
+          <button id="gp_play_btn" onclick="toggleGuidePlay()" style="width:52px;height:52px;border-radius:50%;border:2px solid #62c9a2;background:#62c9a220;color:#62c9a2;font-size:22px;cursor:pointer;">▶</button>
+          <button onclick="seekGuide(15)"  style="padding:8px 14px;border-radius:20px;border:1px solid #1c2b40;background:transparent;color:#92aabf;font-size:13px;cursor:pointer;">15초 ▶▶</button>
+        </div>
+
+        <!-- 가이드 자막 -->
+        <div id="gp_subtitle" style="display:none;background:#62c9a215;border-radius:10px;padding:12px;margin-top:14px;border:1px solid #62c9a230;text-align:center;">
+          <p id="gp_subtitle_txt" style="font-family:'Noto Serif KR',serif;color:#62c9a2;font-size:14px;line-height:1.8;"></p>
+        </div>
+
+        <div style="display:flex;gap:8px;margin-top:14px;justify-content:center;">
+          <button onclick="startTimerWithGuide()" style="padding:10px 24px;border-radius:24px;border:1.5px solid #d9b065;background:#d9b06520;color:#d9b065;font-size:13px;font-weight:600;cursor:pointer;">⏱ 타이머와 함께 시작</button>
+        </div>
+      </div>
+
+      <!-- 가이드 타이머 (가이드+타이머 동시) -->
+      <div id="guide_timer_wrap" style="display:none;">
+        <div style="display:flex;justify-content:center;margin-bottom:16px;position:relative;">
+          <div id="timer_ripple2" style="display:none;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:180px;height:180px;border-radius:50%;background:#62c9a220;animation:ripple 2.5s ease-out infinite;pointer-events:none;"></div>
+          <svg width="180" height="180" style="transform:rotate(-90deg);">
+            <circle cx="90" cy="90" r="72" fill="none" stroke="#152030" stroke-width="6"/>
+            <circle cx="90" cy="90" r="72" fill="none" stroke="#62c9a2" stroke-width="6"
+              stroke-dasharray="${2*Math.PI*72}" stroke-dashoffset="${2*Math.PI*72}"
+              stroke-linecap="round" style="transition:stroke-dashoffset .9s ease;" id="guide_timer_arc"/>
+            <text x="90" y="86" text-anchor="middle" dominant-baseline="middle" fill="#dce8f2" font-size="28" font-weight="600" style="transform:rotate(90deg);transform-origin:90px 90px;" id="guide_timer_txt">--:--</text>
+            <text x="90" y="106" text-anchor="middle" dominant-baseline="middle" fill="#506070" font-size="11" style="transform:rotate(90deg);transform-origin:90px 90px;" id="guide_timer_sub"></text>
+          </svg>
+        </div>
+        <div id="guide_timer_subtitle" style="background:#0d1420;border:1px solid #62c9a244;border-radius:12px;padding:12px 16px;margin-bottom:16px;text-align:center;display:none;">
+          <p id="guide_timer_sub_txt" style="font-family:'Noto Serif KR',serif;color:#62c9a2;font-size:14px;line-height:1.8;"></p>
+        </div>
+        <div style="display:flex;gap:10px;justify-content:center;">
+          <button onclick="stopGuideTimer()" style="padding:10px 24px;border-radius:24px;border:1.5px solid #d47a88;background:#d47a8820;color:#d47a88;font-size:14px;font-weight:600;cursor:pointer;">⏹ 멈추기</button>
+        </div>
+      </div>
     </div>
-    <div style="display:flex;justify-content:center;margin-bottom:20px;position:relative;">
-      <div id="timer_ripple" style="display:none;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:220px;height:220px;border-radius:50%;background:#62c9a220;animation:ripple 2.5s ease-out infinite;pointer-events:none;"></div>
-      <svg width="220" height="220" style="transform:rotate(-90deg);">
-        <circle cx="110" cy="110" r="88" fill="none" stroke="#152030" stroke-width="7"/>
-        <circle cx="110" cy="110" r="88" fill="none" stroke="#62c9a2" stroke-width="7"
-          stroke-dasharray="${2*Math.PI*88}" stroke-dashoffset="${2*Math.PI*88}"
-          stroke-linecap="round" style="transition:stroke-dashoffset .9s ease;" id="timer_arc"/>
-        <text x="110" y="104" text-anchor="middle" dominant-baseline="middle" fill="#dce8f2" font-size="34" font-weight="600" style="transform:rotate(90deg);transform-origin:110px 110px;" id="timer_txt">${fmtTime(timerDur*60)}</text>
-        <text x="110" y="130" text-anchor="middle" dominant-baseline="middle" fill="#506070" font-size="12" style="transform:rotate(90deg);transform-origin:110px 110px;" id="timer_sub">${timerDur}분</text>
-      </svg>
-    </div>
-    <div id="timer_guide" style="display:none;background:#0d1420;border:1px solid #62c9a244;border-radius:12px;padding:14px 18px;margin-bottom:20px;text-align:center;">
-      <p id="timer_guide_txt" style="font-family:'Noto Serif KR',serif;color:#62c9a2;font-size:15px;line-height:1.85;"></p>
-    </div>
-    <div style="display:flex;gap:12px;justify-content:center;" id="timer_btns">
-      <button onclick="startTimer()" style="padding:10px 28px;border-radius:24px;border:1.5px solid #62c9a2;background:#62c9a220;color:#62c9a2;font-size:14px;font-weight:600;cursor:pointer;">시작하기</button>
+
+    <!-- 자유 명상 섹션 -->
+    <div id="section_free" style="display:none;">
+      <div id="dur_picker" style="display:flex;gap:7px;justify-content:center;margin-bottom:24px;flex-wrap:wrap;">
+        ${DURATION_OPTIONS.map(n=>`<button onclick="setDur(${n})" id="dur_${n}" style="padding:7px 14px;border-radius:20px;border:1.5px solid ${n===timerDur?'#62c9a2':'#1c2b40'};background:${n===timerDur?'#62c9a220':'transparent'};color:${n===timerDur?'#62c9a2':'#92aabf'};font-size:13px;cursor:pointer;transition:all .2s;">${n===60?"60분+":n+"분"}</button>`).join("")}
+      </div>
+      <div id="custom_dur_wrap" style="display:none;justify-content:center;gap:8px;align-items:center;margin-bottom:20px;">
+        <input type="number" id="custom_dur" min="60" max="300" placeholder="분 직접 입력" style="width:120px;background:#121b2c;border:1.5px solid #62c9a2;border-radius:10px;padding:8px 12px;color:#62c9a2;font-size:13px;outline:none;"/>
+        <span style="color:#506070;font-size:13px;">분</span>
+      </div>
+      <div style="display:flex;justify-content:center;margin-bottom:20px;position:relative;">
+        <div id="timer_ripple" style="display:none;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:220px;height:220px;border-radius:50%;background:#62c9a220;animation:ripple 2.5s ease-out infinite;pointer-events:none;"></div>
+        <svg width="220" height="220" style="transform:rotate(-90deg);">
+          <circle cx="110" cy="110" r="88" fill="none" stroke="#152030" stroke-width="7"/>
+          <circle cx="110" cy="110" r="88" fill="none" stroke="#62c9a2" stroke-width="7"
+            stroke-dasharray="${2*Math.PI*88}" stroke-dashoffset="${2*Math.PI*88}"
+            stroke-linecap="round" style="transition:stroke-dashoffset .9s ease;" id="timer_arc"/>
+          <text x="110" y="104" text-anchor="middle" dominant-baseline="middle" fill="#dce8f2" font-size="34" font-weight="600" style="transform:rotate(90deg);transform-origin:110px 110px;" id="timer_txt">${fmtTime(timerDur*60)}</text>
+          <text x="110" y="130" text-anchor="middle" dominant-baseline="middle" fill="#506070" font-size="12" style="transform:rotate(90deg);transform-origin:110px 110px;" id="timer_sub">${timerDur}분</text>
+        </svg>
+      </div>
+      <div id="timer_guide" style="display:none;background:#0d1420;border:1px solid #62c9a244;border-radius:12px;padding:14px 18px;margin-bottom:20px;text-align:center;">
+        <p id="timer_guide_txt" style="font-family:'Noto Serif KR',serif;color:#62c9a2;font-size:15px;line-height:1.85;"></p>
+      </div>
+      <div style="display:flex;gap:12px;justify-content:center;" id="timer_btns">
+        <button onclick="startTimer()" style="padding:10px 28px;border-radius:24px;border:1.5px solid #62c9a2;background:#62c9a220;color:#62c9a2;font-size:14px;font-weight:600;cursor:pointer;">시작하기</button>
+      </div>
     </div>
   </div>`;
   loadTimerStats();
+}
+
+function switchTimerMode(mode) {
+  const isGuide = mode === "guide";
+  $("section_guide").style.display = isGuide ? "block" : "none";
+  $("section_free").style.display  = isGuide ? "none"  : "block";
+  $("mode_guide").style.background = isGuide ? "#62c9a2" : "transparent";
+  $("mode_guide").style.color      = isGuide ? "#06080e" : "#506070";
+  $("mode_guide").style.fontWeight = isGuide ? "700" : "400";
+  $("mode_free").style.background  = isGuide ? "transparent" : "#62c9a2";
+  $("mode_free").style.color       = isGuide ? "#506070" : "#06080e";
+  $("mode_free").style.fontWeight  = isGuide ? "400" : "700";
+}
+
+function selectGuide(id) {
+  const g = GUIDED_CONTENT.find(x=>x.id===id); if(!g) return;
+  selectedGuide = g;
+
+  // 카드 하이라이트
+  GUIDED_CONTENT.forEach(x=>{
+    const card=$(`gc_${x.id}`);if(!card)return;
+    card.style.borderColor = x.id===id ? x.color : "#1c2b40";
+    card.style.background  = x.id===id ? x.color+"18" : "#0d1420";
+  });
+
+  // 플레이어 표시
+  const gp=$("guide_player");if(gp)gp.style.display="block";
+  const gi=$("gp_icon");if(gi)gi.textContent=g.icon;
+  const gt=$("gp_title");if(gt)gt.textContent=g.title;
+  const gd=$("gp_desc");if(gd)gd.textContent=g.desc+" ("+g.duration+"분)";
+  const gdt=$("gp_dur_txt");if(gdt)gdt.textContent=fmtTime(g.duration*60);
+
+  // 기존 오디오 정리
+  if(guideAudio){ guideAudio.pause(); guideAudio=null; }
+  const pb=$("gp_play_btn");if(pb)pb.textContent="▶";
+  const gpr=$("gp_progress");if(gpr)gpr.style.width="0%";
+  const gc=$("gp_cur");if(gc)gc.textContent="0:00";
+
+  if(g.url){
+    guideAudio = new Audio(g.url);
+    guideAudio.ontimeupdate = updateGuideProgress;
+    guideAudio.onended = () => { const pb=$("gp_play_btn");if(pb)pb.textContent="▶"; };
+  }
+
+  // 자막 박스 표시
+  const gsub=$("gp_subtitle");if(gsub)gsub.style.display=g.url?"block":"none";
+  if(!g.url){
+    const gst=$("gp_subtitle_txt");
+    if(gst)gst.innerHTML='<span style="color:#d9b065;font-size:13px;">⚠️ 음성 파일 준비 중입니다.<br>타이머와 함께 명상은 바로 사용 가능합니다.</span>';
+    const gpsub=$("gp_subtitle");if(gpsub)gpsub.style.display="block";
+  }
+
+  gp.scrollIntoView({behavior:"smooth",block:"nearest"});
+}
+
+function closeGuidePlayer() {
+  if(guideAudio){guideAudio.pause();guideAudio=null;}
+  selectedGuide=null;
+  const gp=$("guide_player");if(gp)gp.style.display="none";
+  GUIDED_CONTENT.forEach(x=>{
+    const card=$(`gc_${x.id}`);if(!card)return;
+    card.style.borderColor="#1c2b40";card.style.background="#0d1420";
+  });
+}
+
+function toggleGuidePlay() {
+  if(!guideAudio) return;
+  const pb=$("gp_play_btn");
+  if(guideAudio.paused){ guideAudio.play(); if(pb)pb.textContent="⏸"; }
+  else { guideAudio.pause(); if(pb)pb.textContent="▶"; }
+}
+
+function seekGuide(sec) {
+  if(!guideAudio)return;
+  guideAudio.currentTime = Math.max(0, Math.min(guideAudio.duration||0, guideAudio.currentTime+sec));
+}
+
+function seekGuideAudio(e, bar) {
+  if(!guideAudio||!guideAudio.duration)return;
+  const rect=bar.getBoundingClientRect();
+  const pct=(e.clientX-rect.left)/rect.width;
+  guideAudio.currentTime=pct*guideAudio.duration;
+}
+
+function updateGuideProgress() {
+  if(!guideAudio||!guideAudio.duration)return;
+  const pct=guideAudio.currentTime/guideAudio.duration*100;
+  const gpr=$("gp_progress");if(gpr)gpr.style.width=pct+"%";
+  const gc=$("gp_cur");if(gc)gc.textContent=fmtTime(Math.floor(guideAudio.currentTime));
+  // 자막 (GUIDED_MSGS 재활용)
+  const elapsed=Math.floor(guideAudio.currentTime);
+  let sub=GUIDED_MSGS[0].t;
+  for(const g of GUIDED_MSGS){if(elapsed>=g.at)sub=g.t;}
+  const gst=$("gp_subtitle_txt");if(gst&&guideAudio&&!guideAudio.paused)gst.textContent=sub;
+}
+
+// 가이드 + 타이머 동시 실행
+let guideTimerInterval=null;
+let guideTimerLeft=0;
+let guideTimerElapsed=0;
+
+function startTimerWithGuide() {
+  const g=selectedGuide;if(!g)return;
+  const dur=g.duration;
+  guideTimerLeft=dur*60; guideTimerElapsed=0;
+
+  $("guide_cards").style.display="none";
+  $("guide_player").style.display="none";
+  const gtw=$("guide_timer_wrap");if(gtw)gtw.style.display="block";
+  const tr2=$("timer_ripple2");if(tr2)tr2.style.display="block";
+  const gts=$("guide_timer_subtitle");if(gts)gts.style.display="block";
+
+  // 오디오 재생
+  if(guideAudio){guideAudio.currentTime=0;guideAudio.play();}
+
+  updateGuideTimerArc(dur*60,dur*60);
+  guideTimerInterval=setInterval(()=>{
+    guideTimerElapsed++;guideTimerLeft--;
+    let sub=GUIDED_MSGS[0].t;
+    for(const gm of GUIDED_MSGS){if(guideTimerElapsed>=gm.at)sub=gm.t;}
+    const gst=$("guide_timer_sub_txt");if(gst)gst.textContent=sub;
+    updateGuideTimerArc(guideTimerLeft,dur*60);
+    if(guideTimerLeft<=0){
+      clearInterval(guideTimerInterval);
+      if(guideAudio)guideAudio.pause();
+      finishTimer(dur);
+    }
+  },1000);
+}
+
+function updateGuideTimerArc(left,total){
+  const arc=$("guide_timer_arc"),txt=$("guide_timer_txt"),sub=$("guide_timer_sub");if(!arc)return;
+  const circ=2*Math.PI*72;
+  arc.style.strokeDashoffset=circ-((total-left)/total*circ);
+  if(txt)txt.textContent=left>0?fmtTime(left):"✓";
+  if(sub)sub.textContent=left>0?Math.ceil(left/60)+"분 남음":"완료";
+  if(left<=0){arc.style.stroke="#d9b065";if(txt)txt.style.fill="#d9b065";}
+}
+
+function stopGuideTimer(){
+  clearInterval(guideTimerInterval);
+  if(guideAudio)guideAudio.pause();
+  renderTimer();
 }
 
 function setDur(n) {
@@ -505,12 +767,21 @@ async function renderChallenge() {
   renderCalGrid();
 
   const bl = $("board_list");
-  if(bl) bl.innerHTML = board.slice(0,8).map((u,i)=>`
+  if(bl) bl.innerHTML = board.slice(0,20).map((u,i)=>`
     <div style="display:flex;align-items:center;gap:10px;background:${u.uid===currentUser.uid?'#62c9a220':'#121b2c'};border-radius:10px;padding:9px 14px;border:1px solid ${u.uid===currentUser.uid?'#62c9a244':'#1c2b40'};margin-bottom:8px;">
       <span style="color:#d9b065;width:18px;font-weight:700;font-size:12px;">${i+1}</span>
-      <span style="color:#dce8f2;font-size:13px;flex:1;">${u.userName||u.uid}${u.uid===currentUser.uid?" (나)":""}</span>
+      <button onclick="viewMemberJournals('${u.uid}','${(u.userName||'참여자').replace(/'/g,'')}')" style="color:#dce8f2;font-size:13px;flex:1;text-align:left;background:transparent;border:none;cursor:pointer;padding:0;text-decoration:underline;text-underline-offset:2px;">${u.userName||u.uid}${u.uid===currentUser.uid?" (나)":""}</button>
       <span style="color:#62c9a2;font-size:12px;font-weight:600;">${u.checkedDates?.length||0}/${u.totalDays||0}일</span>
     </div>`).join("") || `<p style="color:#506070;text-align:center;padding:24px 0;font-size:13px;">아직 참여자가 없습니다</p>`;
+
+  // 멤버 저널 모달 (챌린지 하단에 추가)
+  if(!$("member_journal_modal")){
+    const mj = document.createElement("div");
+    mj.id = "member_journal_modal";
+    mj.style.cssText = "display:none;position:fixed;inset:0;background:#000b;z-index:2000;align-items:flex-end;justify-content:center;";
+    mj.innerHTML = `<div id="mjm_inner" style="background:#0d1420;border-radius:20px 20px 0 0;border:1px solid #1c2b40;width:100%;max-width:620px;max-height:88vh;overflow-y:auto;padding:24px;animation:slideUp .3s ease;"></div>`;
+    document.body.appendChild(mj);
+  }
 
   window._challengeData = challenge;
 }
@@ -743,6 +1014,36 @@ function closeJournal() {
   const m=$("journal_modal");if(m) m.style.display="none";
 }
 
+async function viewMemberJournals(uid, name) {
+  const modal = $("member_journal_modal"); if(!modal) return;
+  modal.style.display = "flex";
+  const inner = $("mjm_inner");
+  if(inner) inner.innerHTML = `<p style="color:#92aabf;text-align:center;padding:30px;">불러오는 중...</p>`;
+
+  const journals = await FB.list("journals", [W("uid","==",uid), O("date","desc")]);
+
+  if(!inner) return;
+  inner.innerHTML = `
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">
+    <div>
+      <p style="color:#506070;font-size:12px;margin-bottom:2px;">저널 목록</p>
+      <h3 style="font-family:'Noto Serif KR',serif;color:#62c9a2;font-size:18px;">${name}님의 명상 저널</h3>
+    </div>
+    <button onclick="$('member_journal_modal').style.display='none'" style="background:transparent;border:1px solid #1c2b40;border-radius:50%;width:32px;height:32px;color:#92aabf;cursor:pointer;font-size:16px;">✕</button>
+  </div>
+  ${journals.length ? journals.map(j=>`
+  <div style="background:#121b2c;border-radius:12px;border:1px solid #1c2b40;padding:14px;margin-bottom:10px;">
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px;">
+      <span style="color:#62c9a2;font-size:14px;font-weight:600;">${fmtDate(j.date)}</span>
+      ${(j.moods||[]).slice(0,3).map(m=>`<span style="padding:2px 8px;border-radius:10px;font-size:10px;background:#62c9a220;color:#62c9a2;">${m}</span>`).join("")}
+      <span style="padding:2px 8px;border-radius:10px;font-size:10px;background:#7aaed420;color:#7aaed4;">${j.duration}분</span>
+    </div>
+    ${j.reflectQ?`<p style="color:#62c9a2;font-size:12px;margin-bottom:6px;font-style:italic;">💭 ${j.reflectQ}</p>`:""}
+    ${j.body?`<p style="color:#dce8f2;font-size:13px;line-height:1.75;white-space:pre-wrap;">${j.body}</p>`:""}
+    ${j.insight?`<div style="background:#d9b06515;border-radius:8px;padding:8px 12px;margin-top:8px;border:1px solid #d9b06530;"><p style="color:#d9b065;font-size:12px;">✨ ${j.insight}</p></div>`:""}
+  </div>`).join("") : '<p style="color:#506070;text-align:center;padding:40px 0;">작성된 저널이 없습니다</p>'}`;
+}
+
 async function getAiReflection(date) {
   const j=await FB.get("journals",`${currentUser.uid}_${date}`);if(!j)return;
   const ar=$("ai_refl"),at=$("ai_refl_txt");if(!ar||!at)return;
@@ -854,6 +1155,8 @@ function switchRecView(v) {
 }
 
 function recCard(r,mine=false){
+  const safeTitle = (r.title||"").replace(/'/g,"&#39;").replace(/`/g,"&#96;");
+  const safeCat   = (r.cat||"").replace(/'/g,"&#39;");
   return `<div style="background:#0d1420;border-radius:14px;border:1px solid #1c2b40;padding:16px;margin-bottom:10px;">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
       <div style="display:flex;gap:10px;align-items:center;">
@@ -868,11 +1171,48 @@ function recCard(r,mine=false){
         </div>
       </div>
       <div style="display:flex;gap:6px;">
-        ${r.downloadURL?`<button onclick="playRec('${r.id}','${r.downloadURL}')" style="width:34px;height:34px;border-radius:50%;border:1.5px solid #1c2b40;background:transparent;color:#92aabf;cursor:pointer;font-size:14px;">▶</button>`:""}
+        ${r.downloadURL?`<button onclick="playRec('${r.id}','${r.downloadURL}')" id="play_${r.id}" style="width:34px;height:34px;border-radius:50%;border:1.5px solid #1c2b40;background:transparent;color:#92aabf;cursor:pointer;font-size:14px;">▶</button>`:""}
         ${mine?`<button onclick="deleteRec('${r.id}','${r.storagePath||''}')" style="width:34px;height:34px;border-radius:50%;border:1px solid #1c2b40;background:transparent;color:#506070;cursor:pointer;font-size:13px;">✕</button>`:""}
       </div>
     </div>
+    <!-- AI 샌드위치 피드백 -->
+    <div style="display:flex;justify-content:flex-end;margin-top:6px;">
+      <button onclick="getRecAI('${r.id}','${safeTitle}','${safeCat}',${r.duration||0})" style="padding:5px 12px;border-radius:14px;border:1px solid #d9b06540;background:#d9b06515;color:#d9b065;font-size:12px;cursor:pointer;">🥪 AI 피드백</button>
+    </div>
+    <div id="rec_ai_${r.id}" style="display:none;background:#0a1018;border-radius:10px;padding:12px 14px;margin-top:10px;border:1px solid #d9b06530;">
+      <p style="color:#d9b065;font-size:12px;font-weight:600;margin-bottom:6px;">🥪 샌드위치 피드백</p>
+      <p id="rec_ai_txt_${r.id}" style="color:#dce8f2;font-size:13px;line-height:1.85;white-space:pre-wrap;"></p>
+    </div>
   </div>`;
+}
+
+async function getRecAI(rid, title, cat, duration) {
+  const box = $("rec_ai_"+rid), txt = $("rec_ai_txt_"+rid);
+  if(!box||!txt) return;
+  if(box.style.display==="block"){box.style.display="none";return;}
+  box.style.display = "block";
+  txt.textContent = "🤔 분석 중...";
+  try{
+    const res = await fetch("https://api.anthropic.com/v1/messages",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({
+        model:"claude-sonnet-4-20250514",
+        max_tokens:500,
+        system:`당신은 마음챙김 명상 교육 전문가입니다. 
+학생의 명상 가이드 녹음에 대해 샌드위치 피드백 기법으로 응답하세요.
+샌드위치 피드백: ① 긍정(잘된 점 1-2가지) → ② 개선점(1가지) → ③ 격려(마무리)
+각 단계를 이모지로 구분하고 따뜻하고 구체적으로 300자 이내 한국어로.`,
+        messages:[{role:"user",content:`제목: ${title}
+카테고리: ${cat}
+녹음 길이: ${duration}초 (${Math.floor(duration/60)}분 ${duration%60}초)
+
+이 명상 가이드 녹음에 대해 샌드위치 피드백을 해주세요.`}]
+      })
+    });
+    const d = await res.json();
+    txt.textContent = d.content?.map(c=>c.text||"").join("") || "응답 오류";
+  }catch(e){txt.textContent="오류: "+e.message;}
 }
 
 async function startRec() {
@@ -970,6 +1310,7 @@ async function submitPost() {
 
 function postCard(p){
   const liked=(p.likes||[]).includes(currentUser.uid);
+  const cmtCount=(p.comments||[]).length;
   return `<div style="background:#0d1420;border-radius:14px;border:1px solid #1c2b40;padding:16px;margin-bottom:12px;">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
       <div style="display:flex;gap:8px;align-items:center;">
@@ -983,11 +1324,56 @@ function postCard(p){
     <div id="ai_r_${p.id}" style="display:none;background:#06080e;border-radius:8px;padding:10px 14px;margin-bottom:12px;border-left:3px solid #d9b065;">
       <p style="color:#d9b065;font-size:13px;line-height:1.75;" id="ai_rt_${p.id}"></p>
     </div>
+    <!-- 댓글 영역 -->
+    <div id="cmt_area_${p.id}" style="display:none;margin-bottom:10px;">
+      <div id="cmt_list_${p.id}" style="margin-bottom:8px;">
+        ${(p.comments||[]).map(c=>`
+        <div style="display:flex;gap:8px;padding:8px 10px;background:#121b2c;border-radius:8px;margin-bottom:6px;border:1px solid #1c2b40;">
+          <div style="width:22px;height:22px;border-radius:50%;background:#7aaed425;display:flex;align-items:center;justify-content:center;color:#7aaed4;font-weight:700;font-size:10px;flex-shrink:0;">${c.author?.[0]||"?"}</div>
+          <div style="flex:1;">
+            <div style="display:flex;gap:6px;align-items:center;margin-bottom:3px;">
+              <span style="color:#7aaed4;font-size:12px;font-weight:600;">${c.author}</span>
+              <span style="color:#2a3a4a;font-size:10px;">${timeAgo(c.createdAt)}</span>
+            </div>
+            <p style="color:#92aabf;font-size:13px;line-height:1.65;">${c.text}</p>
+          </div>
+        </div>`).join("")}
+      </div>
+      <div style="display:flex;gap:6px;">
+        <input id="cmt_input_${p.id}" placeholder="댓글을 입력하세요..." onkeydown="if(event.key==='Enter')addComment('${p.id}')" style="flex:1;background:#121b2c;border:1px solid #1c2b40;border-radius:20px;padding:8px 14px;color:#dce8f2;font-size:13px;outline:none;"/>
+        <button onclick="addComment('${p.id}')" style="padding:8px 14px;border-radius:20px;border:1.5px solid #62c9a2;background:#62c9a220;color:#62c9a2;font-size:13px;cursor:pointer;">등록</button>
+      </div>
+    </div>
     <div style="display:flex;gap:8px;">
       <button onclick="likePost('${p.id}')" style="padding:5px 12px;border-radius:16px;border:1px solid ${liked?'#62c9a2':'#1c2b40'};background:${liked?'#62c9a220':'transparent'};color:${liked?'#62c9a2':'#92aabf'};font-size:13px;cursor:pointer;">👍 ${(p.likes||[]).length}</button>
-      <button onclick="getPostAI('${p.id}','${p.cat}',\`${(p.text||"").replace(/`/g,"'")}\`)" style="padding:5px 12px;border-radius:16px;border:1px solid #1c2b40;background:transparent;color:#92aabf;font-size:13px;cursor:pointer;">🤖 AI 피드백</button>
+      <button onclick="toggleComments('${p.id}')" style="padding:5px 12px;border-radius:16px;border:1px solid #1c2b40;background:transparent;color:#92aabf;font-size:13px;cursor:pointer;">💬 댓글${cmtCount>0?' '+cmtCount:''}</button>
+      <button onclick="getPostAI('${p.id}','${p.cat}',\`${(p.text||"").replace(/`/g,"'")}\`)" style="padding:5px 12px;border-radius:16px;border:1px solid #1c2b40;background:transparent;color:#92aabf;font-size:13px;cursor:pointer;">🤖 AI</button>
     </div>
   </div>`;
+}
+
+function toggleComments(pid) {
+  const area = $("cmt_area_"+pid);
+  if(!area) return;
+  const open = area.style.display === "none";
+  area.style.display = open ? "block" : "none";
+  if(open) $("cmt_input_"+pid)?.focus();
+}
+
+async function addComment(pid) {
+  const input = $("cmt_input_"+pid);
+  const text = input?.value?.trim(); if(!text) return;
+  const p = await FB.get("posts", pid); if(!p) return;
+  const comments = p.comments||[];
+  comments.push({
+    author: currentUser.displayName||currentUser.email,
+    uid: currentUser.uid,
+    text,
+    createdAt: new Date().toISOString()
+  });
+  await FB.set("posts", pid, {...p, comments});
+  if(input) input.value = "";
+  renderCommunity();
 }
 
 async function likePost(id) {
@@ -1084,7 +1470,10 @@ async function renderMyPage() {
     <div style="display:flex;gap:14px;align-items:center;margin-bottom:24px;padding:16px 18px;background:#0d1420;border-radius:16px;border:1px solid #1c2b40;">
       <img src="${currentUser.photoURL||''}" width="52" height="52" style="border-radius:50%;border:2px solid #62c9a255;" onerror="this.style.display='none'"/>
       <div style="flex:1;">
-        <h2 style="color:#dce8f2;font-size:20px;font-family:'Noto Serif KR',serif;margin-bottom:4px;">${currentUser.displayName}</h2>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+          <h2 style="color:#dce8f2;font-size:20px;font-family:'Noto Serif KR',serif;" id="mp_display_name">${currentUser.displayName||"(이름없음)"}</h2>
+          <button onclick="$('name_edit_wrap').style.display='block';$('name_edit_input').value='${(currentUser.displayName||'').replace(/'/g,'&#39;')}'" style="padding:3px 10px;border-radius:10px;border:1px solid #1c2b40;background:transparent;color:#506070;font-size:11px;cursor:pointer;">✏️ 수정</button>
+        </div>
         <p style="color:#506070;font-size:12px;margin-bottom:6px;">${currentUser.email}</p>
         <div style="display:flex;gap:6px;flex-wrap:wrap;">
           ${challenge?`<span style="padding:2px 10px;border-radius:10px;font-size:11px;font-weight:600;background:#d9b06520;color:#d9b065;border:1px solid #d9b06540;">${challenge.totalDays}일 챌린지</span>`:""}
@@ -1092,9 +1481,22 @@ async function renderMyPage() {
         </div>
       </div>
     </div>
-    <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:22px;">
-      ${[["mpov","📊 개요"],[`mpj","📔 저널(${journals.length})`],[`mps","🧘 세션(${sessions.length})`],[`mpr","🎙️ 녹음(${recordings.length})`],[`mpg","👩‍🏫 가이드(${guideHistory.length})`]].map(([id,l],i)=>`
-      <button onclick="switchMPTab('${id}')" id="mpt_${id}" style="padding:7px 14px;border-radius:20px;border:1px solid ${i===0?'#62c9a2':'#1c2b40'};background:${i===0?'#62c9a220':'transparent'};color:${i===0?'#62c9a2':'#92aabf'};font-size:12px;cursor:pointer;">${l}</button>`).join("")}
+    <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:16px;">
+      <button onclick="switchMPTab('mpov')" id="mpt_mpov" style="padding:7px 14px;border-radius:20px;border:1px solid #62c9a2;background:#62c9a220;color:#62c9a2;font-size:12px;cursor:pointer;">📊 개요</button>
+      <button onclick="switchMPTab('mpgr')" id="mpt_mpgr" style="padding:7px 14px;border-radius:20px;border:1px solid #1c2b40;background:transparent;color:#92aabf;font-size:12px;cursor:pointer;">📈 그래프</button>
+      <button onclick="switchMPTab('mpj')"  id="mpt_mpj"  style="padding:7px 14px;border-radius:20px;border:1px solid #1c2b40;background:transparent;color:#92aabf;font-size:12px;cursor:pointer;">📔 저널(${journals.length})</button>
+      <button onclick="switchMPTab('mps')"  id="mpt_mps"  style="padding:7px 14px;border-radius:20px;border:1px solid #1c2b40;background:transparent;color:#92aabf;font-size:12px;cursor:pointer;">🧘 세션(${sessions.length})</button>
+      <button onclick="switchMPTab('mpr')"  id="mpt_mpr"  style="padding:7px 14px;border-radius:20px;border:1px solid #1c2b40;background:transparent;color:#92aabf;font-size:12px;cursor:pointer;">🎙️ 녹음(${recordings.length})</button>
+      <button onclick="switchMPTab('mpg')"  id="mpt_mpg"  style="padding:7px 14px;border-radius:20px;border:1px solid #1c2b40;background:transparent;color:#92aabf;font-size:12px;cursor:pointer;">👩‍🏫 가이드(${guideHistory.length})</button>
+    </div>
+    <!-- 이름 수정 버튼 -->
+    <div id="name_edit_wrap" style="display:none;background:#0d1420;border-radius:12px;border:1px solid #62c9a244;padding:14px 16px;margin-bottom:16px;">
+      <p style="color:#92aabf;font-size:12px;margin-bottom:8px;">표시 이름 수정</p>
+      <div style="display:flex;gap:8px;">
+        <input id="name_edit_input" placeholder="새 이름 입력" style="flex:1;background:#121b2c;border:1px solid #1c2b40;border-radius:10px;padding:9px 12px;color:#dce8f2;font-size:14px;outline:none;"/>
+        <button onclick="saveDisplayName()" style="padding:9px 18px;border-radius:20px;border:1.5px solid #62c9a2;background:#62c9a220;color:#62c9a2;font-size:13px;font-weight:600;cursor:pointer;">저장</button>
+        <button onclick="$('name_edit_wrap').style.display='none'" style="padding:9px 14px;border-radius:20px;border:1px solid #1c2b40;background:transparent;color:#506070;font-size:13px;cursor:pointer;">취소</button>
+      </div>
     </div>
     <div id="mp_content"></div>
   </div>`;
@@ -1107,10 +1509,143 @@ function switchMPTab(id) {
     b.style.borderColor=sel?"#62c9a2":"#1c2b40";b.style.background=sel?"#62c9a220":"transparent";b.style.color=sel?"#62c9a2":"#92aabf";
   });
   if(id==="mpov") renderMPOverview();
+  if(id==="mpgr") renderMPGraph();
   if(id==="mpj")  renderMPJournals();
   if(id==="mps")  renderMPSessions();
   if(id==="mpr")  renderMPRecordings();
   if(id==="mpg")  renderMPGuides();
+}
+
+async function saveDisplayName() {
+  const newName = $("name_edit_input")?.value?.trim();
+  if(!newName){alert("이름을 입력해주세요.");return;}
+  try {
+    await auth.currentUser.updateProfile({displayName: newName});
+    currentUser = auth.currentUser;
+    await FB.set("users", currentUser.uid, {name: newName});
+    // Firestore의 기존 데이터 이름도 업데이트
+    const challenge = await FB.get("challenges", currentUser.uid);
+    if(challenge) await FB.set("challenges", currentUser.uid, {userName: newName});
+    const el = $("mp_display_name"); if(el) el.textContent = newName;
+    $("name_edit_wrap").style.display = "none";
+    alert("✅ 이름이 '"+newName+"'으로 변경되었습니다!");
+    renderMyPage();
+  } catch(e) { alert("오류: "+e.message); }
+}
+
+function renderMPGraph(){
+  const {sessions,journals} = window._mpData;
+  const mc = $("mp_content"); if(!mc) return;
+
+  // 최근 30일 데이터 준비
+  const days = 30;
+  const labels = [], sesData = [], journalData = [], minsData = [];
+  for(let i=days-1;i>=0;i--){
+    const d = addDays(today(), -i);
+    labels.push(d.slice(5)); // MM-DD
+    const daySes = sessions.filter(s=>s.date?.slice(0,10)===d);
+    const dayJ   = journals.filter(j=>j.date===d);
+    sesData.push(daySes.length);
+    journalData.push(dayJ.length);
+    minsData.push(daySes.reduce((a,s)=>a+(s.duration||0),0));
+  }
+
+  // 기분 집계
+  const moodCounts = {};
+  journals.forEach(j=>(j.moods||[]).forEach(m=>{moodCounts[m]=(moodCounts[m]||0)+1;}));
+  const topMoods = Object.entries(moodCounts).sort((a,b)=>b[1]-a[1]).slice(0,5);
+  const maxMood = topMoods[0]?.[1]||1;
+
+  // SVG 바 차트 그리기 함수
+  const maxMins = Math.max(...minsData, 1);
+  const maxSes  = Math.max(...sesData, 1);
+  const W=320, H=100, pad=4;
+  const barW = (W - pad*(days-1)) / days;
+
+  const minsBar = minsData.map((v,i)=>{
+    const h = Math.round((v/maxMins)*H);
+    const x = i*(barW+pad);
+    const col = v>0 ? "#62c9a2" : "#1c2b40";
+    return `<rect x="${x.toFixed(1)}" y="${(H-h)}" width="${barW.toFixed(1)}" height="${h}" rx="2" fill="${col}" opacity="0.85"/>`;
+  }).join("");
+
+  const journalDots = journalData.map((v,i)=>{
+    if(!v) return "";
+    const x = i*(barW+pad)+barW/2;
+    return `<circle cx="${x.toFixed(1)}" cy="6" r="4" fill="#d9b065"/>`;
+  }).join("");
+
+  mc.innerHTML = `
+  <div style="animation:fadeUp .3s ease both;">
+    <!-- 일별 명상시간 바 차트 -->
+    <div style="background:#0d1420;border-radius:14px;border:1px solid #1c2b40;padding:16px;margin-bottom:14px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+        <p style="color:#dce8f2;font-size:14px;font-weight:600;">📊 최근 30일 명상 현황</p>
+        <div style="display:flex;gap:10px;font-size:11px;color:#506070;">
+          <span><span style="display:inline-block;width:10px;height:10px;background:#62c9a2;border-radius:2px;margin-right:4px;"></span>명상(분)</span>
+          <span><span style="display:inline-block;width:8px;height:8px;background:#d9b065;border-radius:50%;margin-right:4px;"></span>저널</span>
+        </div>
+      </div>
+      <div style="overflow-x:auto;">
+        <svg viewBox="0 0 ${W} ${H+20}" style="width:100%;min-width:280px;display:block;">
+          ${minsBar}
+          ${journalDots}
+          <!-- x축 라벨 (5일 간격) -->
+          ${labels.map((l,i)=>i%5===0?`<text x="${(i*(barW+pad)+barW/2).toFixed(1)}" y="${H+15}" text-anchor="middle" fill="#506070" font-size="8">${l}</text>`:"").join("")}
+        </svg>
+      </div>
+      <div style="display:flex;justify-content:space-between;margin-top:8px;padding-top:8px;border-top:1px solid #1c2b40;">
+        <div style="text-align:center;flex:1;">
+          <div style="color:#62c9a2;font-weight:700;font-size:18px;">${minsData.reduce((a,b)=>a+b,0)}</div>
+          <div style="color:#506070;font-size:11px;">30일 총 분</div>
+        </div>
+        <div style="text-align:center;flex:1;">
+          <div style="color:#7aaed4;font-weight:700;font-size:18px;">${sesData.reduce((a,b)=>a+b,0)}</div>
+          <div style="color:#506070;font-size:11px;">30일 세션</div>
+        </div>
+        <div style="text-align:center;flex:1;">
+          <div style="color:#d9b065;font-weight:700;font-size:18px;">${journalData.reduce((a,b)=>a+b,0)}</div>
+          <div style="color:#506070;font-size:11px;">30일 저널</div>
+        </div>
+        <div style="text-align:center;flex:1;">
+          <div style="color:#a47ad4;font-weight:700;font-size:18px;">${sesData.filter(v=>v>0).length}</div>
+          <div style="color:#506070;font-size:11px;">활동일</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 기분 현황 -->
+    <div style="background:#0d1420;border-radius:14px;border:1px solid #1c2b40;padding:16px;margin-bottom:14px;">
+      <p style="color:#dce8f2;font-size:14px;font-weight:600;margin-bottom:14px;">😌 기분 분포 (전체 저널)</p>
+      ${topMoods.length ? topMoods.map(([mood,cnt])=>`
+      <div style="margin-bottom:10px;">
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+          <span style="color:#dce8f2;font-size:13px;">${mood}</span>
+          <span style="color:#62c9a2;font-size:12px;font-weight:600;">${cnt}회</span>
+        </div>
+        <div style="height:6px;background:#1c2b40;border-radius:3px;">
+          <div style="height:6px;width:${Math.round(cnt/maxMood*100)}%;background:#62c9a2;border-radius:3px;transition:width .6s ease;"></div>
+        </div>
+      </div>`).join("") : '<p style="color:#506070;font-size:13px;">저널 데이터가 없습니다</p>'}
+    </div>
+
+    <!-- 요일별 패턴 -->
+    <div style="background:#0d1420;border-radius:14px;border:1px solid #1c2b40;padding:16px;">
+      <p style="color:#dce8f2;font-size:14px;font-weight:600;margin-bottom:14px;">📅 요일별 명상 패턴</p>
+      <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:6px;">
+        ${["일","월","화","수","목","금","토"].map((day,di)=>{
+          const cnt = sessions.filter(s=>new Date(s.date).getDay()===di).length;
+          const maxDayCnt = Math.max(...["일","월","화","수","목","금","토"].map((_,d)=>sessions.filter(s=>new Date(s.date).getDay()===d).length),1);
+          const intensity = cnt/maxDayCnt;
+          const bg = cnt===0?"#121b2c":\`rgba(98,201,162,\${0.2+intensity*0.8})\`;
+          return \`<div style="text-align:center;padding:10px 4px;background:\${bg};border-radius:10px;border:1px solid #1c2b4060;">
+            <div style="color:#506070;font-size:11px;margin-bottom:4px;">\${day}</div>
+            <div style="color:\${cnt>0?'#62c9a2':'#2a3a4a'};font-weight:700;font-size:16px;">\${cnt}</div>
+          </div>\`;
+        }).join("")}
+      </div>
+    </div>
+  </div>`;
 }
 
 function renderMPOverview(){
