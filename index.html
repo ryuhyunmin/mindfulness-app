@@ -89,7 +89,7 @@ const GUIDED_MSGS = [
   {at:600, t:"서서히 의식을 현재로 가져오세요."},
 ];
 // ══ 가이드 명상 콘텐츠 ══
-// 녹음 완성 후 url 부분만 교체하시면 됩니다
+// 교수님 녹음 완성 후 url 부분만 교체하시면 됩니다
 // Firebase Storage URL 또는 외부 MP3 URL 모두 가능
 const GUIDED_CONTENT = [
   {
@@ -191,7 +191,7 @@ function renderLogin(msg="") {
     <div style="text-align:center;margin-bottom:32px;">
       <div style="font-size:64px;margin-bottom:16px;filter:drop-shadow(0 0 24px #62c9a255)">🧘</div>
       <h1 style="font-family:'Noto Serif KR',serif;color:#62c9a2;font-size:28px;margin-bottom:6px;">마음챙김 명상</h1>
-      <p style="color:#92aabf;font-size:13px;">마음챙김 명상 실습 커뮤니티</p>
+      <p style="color:#92aabf;font-size:13px;">대학원 명상 실습 커뮤니티</p>
     </div>
     <div style="background:#0d1420;border:1px solid #1c2b40;border-radius:20px;padding:28px;width:100%;max-width:360px;">
       <div style="display:flex;gap:0;margin-bottom:22px;background:#121b2c;border-radius:12px;padding:3px;">
@@ -1633,16 +1633,18 @@ function renderMPGraph(){
     <div style="background:#0d1420;border-radius:14px;border:1px solid #1c2b40;padding:16px;">
       <p style="color:#dce8f2;font-size:14px;font-weight:600;margin-bottom:14px;">📅 요일별 명상 패턴</p>
       <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:6px;">
-        ${["일","월","화","수","목","금","토"].map((day,di)=>{
-          const cnt = sessions.filter(s=>new Date(s.date).getDay()===di).length;
-          const maxDayCnt = Math.max(...["일","월","화","수","목","금","토"].map((_,d)=>sessions.filter(s=>new Date(s.date).getDay()===d).length),1);
-          const intensity = cnt/maxDayCnt;
-          const bg = cnt===0?"#121b2c":\`rgba(98,201,162,\${0.2+intensity*0.8})\`;
-          return \`<div style="text-align:center;padding:10px 4px;background:\${bg};border-radius:10px;border:1px solid #1c2b4060;">
-            <div style="color:#506070;font-size:11px;margin-bottom:4px;">\${day}</div>
-            <div style="color:\${cnt>0?'#62c9a2':'#2a3a4a'};font-weight:700;font-size:16px;">\${cnt}</div>
-          </div>\`;
-        }).join("")}
+        ${(()=>{
+          const days7=["일","월","화","수","목","금","토"];
+          const cnts=days7.map((_,di)=>sessions.filter(s=>new Date(s.date).getDay()===di).length);
+          const maxC=Math.max(...cnts,1);
+          return days7.map((day,di)=>{
+            const cnt=cnts[di];
+            const alpha=(0.2+cnt/maxC*0.8).toFixed(2);
+            const bg=cnt===0?"#121b2c":"rgba(98,201,162,"+alpha+")";
+            const col=cnt>0?"#62c9a2":"#2a3a4a";
+            return '<div style="text-align:center;padding:10px 4px;background:'+bg+';border-radius:10px;border:1px solid #1c2b4060;"><div style="color:#506070;font-size:11px;margin-bottom:4px;">'+day+'</div><div style="color:'+col+';font-weight:700;font-size:16px;">'+cnt+'</div></div>';
+          }).join("");
+        })()}
       </div>
     </div>
   </div>`;
