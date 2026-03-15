@@ -50,7 +50,7 @@ const gp      = new firebase.auth.GoogleAuthProvider();
    전역 상태
    ══════════════════════════════════════════════════ */
 let currentUser   = null;
-let currentTab    = "timer";
+let currentTab    = "challenge";
 let timerInterval = null;
 let timerLeft     = 0;
 let timerDur      = 10;
@@ -290,11 +290,11 @@ async function doForgotPassword() {
 function renderApp() {
   const u = currentUser;
   const tabs = [
-    {id:"timer",     icon:"🧘", label:"명상"},
     {id:"challenge", icon:"📅", label:"챌린지"},
+    {id:"guide",     icon:"👩‍🏫", label:"가이드"},
     {id:"record",    icon:"🎙️", label:"녹음"},
     {id:"community", icon:"💬", label:"커뮤니티"},
-    {id:"guide",     icon:"👩‍🏫", label:"가이드"},
+    {id:"timer",     icon:"🧘", label:"명상"},
     {id:"mypage",    icon:"👤", label:"내 페이지"},
     ...(isAdmin()?[{id:"admin",icon:"📊",label:"관리자"}]:[]),
   ];
@@ -861,7 +861,7 @@ function renderJournalInner(date, j, inner) {
         <h2 style="font-family:'Noto Serif KR',serif;color:#62c9a2;font-size:20px;">${date===today()?"오늘의 명상 저널":fmtDate(date)+" 저널"}</h2>
       </div>
       <div style="display:flex;gap:8px;">
-        <button onclick="editJournal('${date}')" style="padding:6px 14px;border-radius:20px;border:1px solid #1c2b40;background:transparent;color:#92aabf;font-size:12px;cursor:pointer;">수정</button>
+        <button onclick="editJournal('${date}')" style="padding:6px 14px;border-radius:20px;border:1.5px solid #62c9a2;background:#62c9a220;color:#62c9a2;font-size:12px;cursor:pointer;font-weight:600;">✏️ 수정</button>
         <button onclick="deleteJournal('${date}')" style="padding:6px 14px;border-radius:20px;border:1px solid #d47a88;background:#d47a8820;color:#d47a88;font-size:12px;cursor:pointer;">삭제</button>
         <button onclick="closeJournal()" style="background:transparent;border:1px solid #1c2b40;border-radius:50%;width:32px;height:32px;color:#92aabf;cursor:pointer;font-size:16px;">✕</button>
       </div>
@@ -1122,19 +1122,61 @@ async function renderRecord() {
           ${["명상 안내","가이드 실습","명상 후기","자유 녹음"].map(c=>`<option>${c}</option>`).join("")}
         </select>
       </div>
-      <div style="display:flex;gap:3px;align-items:center;justify-content:center;height:44px;margin-bottom:14px;" id="waveform">
-        ${Array.from({length:28}).map((_,i)=>`<div style="width:3px;border-radius:2px;background:#1c2b40;height:${4+Math.sin(i*.9)*8}px;"></div>`).join("")}
+
+      <!-- 모드 선택 -->
+      <div style="display:flex;gap:0;background:#121b2c;border-radius:10px;padding:3px;margin-bottom:14px;">
+        <button onclick="switchRecMode('record')" id="recmode_record" style="flex:1;padding:8px;border-radius:8px;border:none;background:#62c9a2;color:#06080e;font-size:13px;font-weight:700;cursor:pointer;">🎙️ 직접 녹음</button>
+        <button onclick="switchRecMode('upload')" id="recmode_upload" style="flex:1;padding:8px;border-radius:8px;border:none;background:transparent;color:#506070;font-size:13px;cursor:pointer;">📁 파일 업로드</button>
       </div>
-      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
-        <label style="display:flex;gap:8px;align-items:center;cursor:pointer;color:#92aabf;font-size:13px;">
-          <input type="checkbox" id="rec_share" checked style="accent-color:#62c9a2;"/> 커뮤니티에 공유
+
+      <!-- 직접 녹음 영역 -->
+      <div id="rec_mode_record">
+        <div style="display:flex;gap:3px;align-items:center;justify-content:center;height:44px;margin-bottom:14px;" id="waveform">
+          ${Array.from({length:28}).map((_,i)=>`<div style="width:3px;border-radius:2px;background:#1c2b40;height:${4+Math.sin(i*.9)*8}px;"></div>`).join("")}
+        </div>
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+          <label style="display:flex;gap:8px;align-items:center;cursor:pointer;color:#92aabf;font-size:13px;">
+            <input type="checkbox" id="rec_share" checked style="accent-color:#62c9a2;"/> 커뮤니티에 공유
+          </label>
+          <div>
+            <button id="rec_btn_start" onclick="startRec()" style="padding:10px 22px;border-radius:24px;border:1.5px solid #62c9a2;background:#62c9a220;color:#62c9a2;font-size:14px;font-weight:600;cursor:pointer;">🎙️ 녹음 시작</button>
+            <button id="rec_btn_stop" onclick="stopRec()" style="display:none;padding:10px 22px;border-radius:24px;border:1.5px solid #d47a88;background:#d47a8820;color:#d47a88;font-size:14px;font-weight:600;cursor:pointer;">⏹ 저장</button>
+          </div>
+        </div>
+        <p id="rec_elapsed" style="display:none;color:#62c9a2;font-size:14px;text-align:center;margin-top:10px;">00:00</p>
+      </div>
+
+      <!-- 파일 업로드 영역 -->
+      <div id="rec_mode_upload" style="display:none;">
+        <label style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;border:2px dashed #1c2b40;border-radius:12px;padding:24px;cursor:pointer;transition:border-color .2s;" id="upload_drop_zone">
+          <span style="font-size:32px;">🎵</span>
+          <p style="color:#92aabf;font-size:13px;text-align:center;">MP3, M4A, WAV, WEBM 파일을 선택하거나<br>여기에 끌어다 놓으세요</p>
+          <input type="file" id="rec_file_input" accept="audio/*" style="display:none;" onchange="handleFileSelect(event)"/>
+          <button onclick="$('rec_file_input').click()" style="padding:8px 20px;border-radius:20px;border:1.5px solid #62c9a2;background:#62c9a220;color:#62c9a2;font-size:13px;cursor:pointer;">파일 선택</button>
         </label>
-        <div>
-          <button id="rec_btn_start" onclick="startRec()" style="padding:10px 22px;border-radius:24px;border:1.5px solid #62c9a2;background:#62c9a220;color:#62c9a2;font-size:14px;font-weight:600;cursor:pointer;">🎙️ 녹음 시작</button>
-          <button id="rec_btn_stop" onclick="stopRec()" style="display:none;padding:10px 22px;border-radius:24px;border:1.5px solid #d47a88;background:#d47a8820;color:#d47a88;font-size:14px;font-weight:600;cursor:pointer;">⏹ 저장</button>
+        <div id="upload_preview" style="display:none;margin-top:12px;background:#121b2c;border-radius:10px;padding:12px 14px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <div>
+              <p id="upload_filename" style="color:#dce8f2;font-size:13px;font-weight:600;margin-bottom:3px;"></p>
+              <p id="upload_filesize" style="color:#506070;font-size:11px;"></p>
+            </div>
+            <button onclick="clearFileSelect()" style="background:transparent;border:none;color:#506070;font-size:18px;cursor:pointer;">✕</button>
+          </div>
+          <audio id="upload_audio_preview" controls style="width:100%;margin-top:10px;border-radius:8px;"></audio>
+        </div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-top:12px;flex-wrap:wrap;gap:10px;">
+          <label style="display:flex;gap:8px;align-items:center;cursor:pointer;color:#92aabf;font-size:13px;">
+            <input type="checkbox" id="rec_share_upload" checked style="accent-color:#62c9a2;"/> 커뮤니티에 공유
+          </label>
+          <button onclick="uploadRecFile()" id="upload_btn" style="padding:10px 22px;border-radius:24px;border:1.5px solid #62c9a2;background:#62c9a220;color:#62c9a2;font-size:14px;font-weight:600;cursor:pointer;">⬆️ 업로드</button>
+        </div>
+        <div id="upload_progress" style="display:none;margin-top:12px;">
+          <div style="height:4px;background:#1c2b40;border-radius:2px;">
+            <div id="upload_progress_bar" style="height:4px;background:#62c9a2;border-radius:2px;width:0%;transition:width .3s;"></div>
+          </div>
+          <p id="upload_status" style="color:#62c9a2;font-size:12px;text-align:center;margin-top:6px;">업로드 중...</p>
         </div>
       </div>
-      <p id="rec_elapsed" style="display:none;color:#62c9a2;font-size:14px;text-align:center;margin-top:10px;">00:00</p>
     </div>
     <div style="display:flex;gap:4px;margin-bottom:18px;">
       <button id="rv_mine" onclick="switchRecView('mine')" style="padding:8px 18px;border-radius:20px;border:1px solid #62c9a2;background:#62c9a220;color:#62c9a2;font-size:13px;cursor:pointer;">내 녹음 (${myRecs.length})</button>
@@ -1143,6 +1185,7 @@ async function renderRecord() {
     <div id="rec_list_mine">${myRecs.length?myRecs.map(r=>recCard(r,true)).join(""):'<p style="color:#506070;text-align:center;padding:32px 0;font-size:13px;">아직 녹음이 없습니다</p>'}</div>
     <div id="rec_list_all" style="display:none;">${allRecs.filter(r=>r.shared).map(r=>recCard(r,r.uid===currentUser.uid)).join("")||'<p style="color:#506070;text-align:center;padding:32px 0;font-size:13px;">공유된 녹음이 없습니다</p>'}</div>
   </div>`;
+  setTimeout(setupDropZone, 100);
 }
 
 function switchRecView(v) {
@@ -1215,6 +1258,126 @@ async function getRecAI(rid, title, cat, duration) {
   }catch(e){txt.textContent="오류: "+e.message;}
 }
 
+// 녹음 모드 전환
+function switchRecMode(mode) {
+  const isRecord = mode === "record";
+  $("rec_mode_record").style.display = isRecord ? "block" : "none";
+  $("rec_mode_upload").style.display = isRecord ? "none"  : "block";
+  $("recmode_record").style.background = isRecord ? "#62c9a2" : "transparent";
+  $("recmode_record").style.color      = isRecord ? "#06080e" : "#506070";
+  $("recmode_record").style.fontWeight = isRecord ? "700"     : "400";
+  $("recmode_upload").style.background = isRecord ? "transparent" : "#62c9a2";
+  $("recmode_upload").style.color      = isRecord ? "#506070"     : "#06080e";
+  $("recmode_upload").style.fontWeight = isRecord ? "400"         : "700";
+}
+
+// 파일 선택 처리
+function handleFileSelect(e) {
+  const file = e.target.files[0]; if(!file) return;
+  showUploadPreview(file);
+}
+
+function showUploadPreview(file) {
+  const prev = $("upload_preview");
+  const fn   = $("upload_filename");
+  const fs   = $("upload_filesize");
+  const ap   = $("upload_audio_preview");
+  const dz   = $("upload_drop_zone");
+  if(fn) fn.textContent = file.name;
+  if(fs) fs.textContent = (file.size/1024/1024).toFixed(2) + " MB";
+  if(ap) ap.src = URL.createObjectURL(file);
+  if(prev) prev.style.display = "block";
+  if(dz)   dz.style.borderColor = "#62c9a2";
+  window._uploadFile = file;
+}
+
+function clearFileSelect() {
+  window._uploadFile = null;
+  const prev = $("upload_preview"); if(prev) prev.style.display="none";
+  const fi   = $("rec_file_input"); if(fi)   fi.value="";
+  const dz   = $("upload_drop_zone"); if(dz) dz.style.borderColor="#1c2b40";
+  const ap   = $("upload_audio_preview"); if(ap){ ap.pause(); ap.src=""; }
+}
+
+// 파일 업로드 실행
+async function uploadRecFile() {
+  const file = window._uploadFile;
+  if(!file){ alert("파일을 먼저 선택해주세요."); return; }
+
+  const title  = $("rec_title")?.value || file.name.replace(/\.[^.]+$/, "");
+  const cat    = $("rec_cat")?.value || "명상 안내";
+  const shared = $("rec_share_upload")?.checked !== false;
+
+  const btn = $("upload_btn");
+  const prog = $("upload_progress");
+  const bar  = $("upload_progress_bar");
+  const stat = $("upload_status");
+
+  if(btn) { btn.disabled=true; btn.textContent="업로드 중..."; }
+  if(prog) prog.style.display = "block";
+
+  try {
+    const rid  = `${currentUser.uid}_${Date.now()}`;
+    const ext  = file.name.split(".").pop() || "mp3";
+    const path = `recordings/${currentUser.uid}/${rid}.${ext}`;
+    const ref  = storage.ref(path);
+
+    // 진행률 표시
+    const task = ref.put(file);
+    task.on("state_changed",
+      snap => {
+        const pct = Math.round(snap.bytesTransferred / snap.totalBytes * 100);
+        if(bar)  bar.style.width = pct + "%";
+        if(stat) stat.textContent = `업로드 중... ${pct}%`;
+      },
+      err => { throw err; }
+    );
+    await task;
+
+    const url = await ref.getDownloadURL();
+
+    // 오디오 길이 측정
+    let dur = 0;
+    try {
+      const ap = $("upload_audio_preview");
+      if(ap && ap.duration && isFinite(ap.duration)) dur = Math.round(ap.duration);
+    } catch(e){}
+
+    await FB.set("recordings", rid, {
+      uid: currentUser.uid,
+      userName: currentUser.displayName || currentUser.email,
+      title, cat,
+      duration: dur,
+      downloadURL: url,
+      storagePath: path,
+      shared,
+      createdAt: new Date().toISOString()
+    });
+
+    if(stat) stat.textContent = "✅ 업로드 완료!";
+    if(bar)  bar.style.background = "#62c9a2";
+    setTimeout(() => { clearFileSelect(); renderRecord(); }, 1200);
+
+  } catch(e) {
+    if(stat) stat.textContent = "❌ 오류: " + e.message;
+    if(btn)  { btn.disabled=false; btn.textContent="⬆️ 업로드"; }
+    console.error("upload error:", e);
+  }
+}
+
+// 드래그앤드롭 처리 (렌더링 후 이벤트 연결)
+function setupDropZone() {
+  const dz = $("upload_drop_zone"); if(!dz) return;
+  dz.addEventListener("dragover", e=>{ e.preventDefault(); dz.style.borderColor="#62c9a2"; });
+  dz.addEventListener("dragleave", ()=>{ dz.style.borderColor="#1c2b40"; });
+  dz.addEventListener("drop", e=>{
+    e.preventDefault();
+    const file = e.dataTransfer.files[0];
+    if(file && file.type.startsWith("audio/")){ showUploadPreview(file); }
+    else { alert("오디오 파일만 업로드 가능합니다."); }
+  });
+}
+
 async function startRec() {
   try{
     const stream=await navigator.mediaDevices.getUserMedia({audio:true});
@@ -1244,10 +1407,24 @@ async function stopRec() {
     const rid=`${currentUser.uid}_${Date.now()}`;
     const path=`recordings/${currentUser.uid}/${rid}.webm`;
     const storageRef=storage.ref(path);
-    await storageRef.put(blob);
-    const url=await storageRef.getDownloadURL();
-    await FB.set("recordings",rid,{uid:currentUser.uid,userName:currentUser.displayName,title,cat,duration:recElapsed,downloadURL:url,storagePath:path,shared,createdAt:new Date().toISOString()});
-    renderRecord();
+    try {
+      await storageRef.put(blob);
+      const url=await storageRef.getDownloadURL();
+      await FB.set("recordings",rid,{
+        uid:currentUser.uid,
+        userName:currentUser.displayName||currentUser.email,
+        title,cat,
+        duration:recElapsed,
+        downloadURL:url,
+        storagePath:path,
+        shared,
+        createdAt:new Date().toISOString()
+      });
+      renderRecord();
+    } catch(e) {
+      alert("저장 오류: "+e.message+"\n\nFirebase Storage 규칙을 확인해주세요.");
+      renderRecord();
+    }
   };
   mediaRecorder.stop();
 }
