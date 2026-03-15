@@ -292,7 +292,6 @@ function renderApp() {
   const tabs = [
     {id:"challenge", icon:"📅", label:"챌린지"},
     {id:"guide",     icon:"👩‍🏫", label:"가이드"},
-    {id:"record",    icon:"🎙️", label:"녹음"},
     {id:"community", icon:"💬", label:"커뮤니티"},
     {id:"timer",     icon:"🧘", label:"명상"},
     {id:"mypage",    icon:"👤", label:"내 페이지"},
@@ -378,14 +377,14 @@ function renderTimer() {
     <p style="color:#92aabf;text-align:center;font-size:13px;margin-bottom:20px;">지금 이 순간에 머무세요</p>
     <div style="display:flex;gap:10px;margin-bottom:20px;" id="timer_stats"></div>
 
-    <!-- 모드 선택 탭 -->
+    <!-- 모드 선택 탭 (자유명상 기본) -->
     <div style="display:flex;gap:0;background:#121b2c;border-radius:14px;padding:3px;margin-bottom:20px;">
-      <button onclick="switchTimerMode('guide')" id="mode_guide" style="flex:1;padding:10px;border-radius:12px;border:none;background:#62c9a2;color:#06080e;font-size:13px;font-weight:700;cursor:pointer;">🎧 가이드 명상</button>
-      <button onclick="switchTimerMode('free')"  id="mode_free"  style="flex:1;padding:10px;border-radius:12px;border:none;background:transparent;color:#506070;font-size:13px;cursor:pointer;">⏱ 자유 명상</button>
+      <button onclick="switchTimerMode('free')"  id="mode_free"  style="flex:1;padding:10px;border-radius:12px;border:none;background:#62c9a2;color:#06080e;font-size:13px;font-weight:700;cursor:pointer;">⏱ 자유 명상</button>
+      <button onclick="switchTimerMode('guide')" id="mode_guide" style="flex:1;padding:10px;border-radius:12px;border:none;background:transparent;color:#506070;font-size:13px;cursor:pointer;">🎧 가이드 명상</button>
     </div>
 
-    <!-- 가이드 명상 섹션 -->
-    <div id="section_guide">
+    <!-- 가이드 명상 섹션 (기본 숨김) -->
+    <div id="section_guide" style="display:none;">
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:18px;" id="guide_cards">
         ${GUIDED_CONTENT.map(g=>`
         <div onclick="selectGuide('${g.id}')" id="gc_${g.id}" style="background:#0d1420;border-radius:14px;border:2px solid #1c2b40;padding:14px;cursor:pointer;transition:all .2s;position:relative;">
@@ -455,8 +454,8 @@ function renderTimer() {
       </div>
     </div>
 
-    <!-- 자유 명상 섹션 -->
-    <div id="section_free" style="display:none;">
+    <!-- 자유 명상 섹션 (기본 표시) -->
+    <div id="section_free">
       <div id="dur_picker" style="display:flex;gap:7px;justify-content:center;margin-bottom:24px;flex-wrap:wrap;">
         ${DURATION_OPTIONS.map(n=>`<button onclick="setDur(${n})" id="dur_${n}" style="padding:7px 14px;border-radius:20px;border:1.5px solid ${n===timerDur?'#62c9a2':'#1c2b40'};background:${n===timerDur?'#62c9a220':'transparent'};color:${n===timerDur?'#62c9a2':'#92aabf'};font-size:13px;cursor:pointer;transition:all .2s;">${n===60?"60분+":n+"분"}</button>`).join("")}
       </div>
@@ -487,15 +486,15 @@ function renderTimer() {
 }
 
 function switchTimerMode(mode) {
-  const isGuide = mode === "guide";
-  $("section_guide").style.display = isGuide ? "block" : "none";
-  $("section_free").style.display  = isGuide ? "none"  : "block";
-  $("mode_guide").style.background = isGuide ? "#62c9a2" : "transparent";
-  $("mode_guide").style.color      = isGuide ? "#06080e" : "#506070";
-  $("mode_guide").style.fontWeight = isGuide ? "700" : "400";
-  $("mode_free").style.background  = isGuide ? "transparent" : "#62c9a2";
-  $("mode_free").style.color       = isGuide ? "#506070" : "#06080e";
-  $("mode_free").style.fontWeight  = isGuide ? "400" : "700";
+  const isFree = mode === "free";
+  $("section_free").style.display  = isFree ? "block" : "none";
+  $("section_guide").style.display = isFree ? "none"  : "block";
+  $("mode_free").style.background  = isFree ? "#62c9a2" : "transparent";
+  $("mode_free").style.color       = isFree ? "#06080e" : "#506070";
+  $("mode_free").style.fontWeight  = isFree ? "700" : "400";
+  $("mode_guide").style.background = isFree ? "transparent" : "#62c9a2";
+  $("mode_guide").style.color      = isFree ? "#506070" : "#06080e";
+  $("mode_guide").style.fontWeight = isFree ? "400" : "700";
 }
 
 function selectGuide(id) {
@@ -1578,49 +1577,152 @@ async function getPostAI(id,cat,text) {
 async function renderGuide() {
   const m=$("main");if(!m)return;
   const history=await FB.list("guides",[W("uid","==",currentUser.uid),O("createdAt","desc")]);
+  // 관리자용: 전체 제출 현황 (제목/일시만, 내용 비공개)
+  const allGuides = isAdmin() ? await FB.list("guides",[O("createdAt","desc")]) : [];
+
   m.innerHTML=`
-  <div style="max-width:520px;margin:0 auto;animation:fadeUp .4s ease both;">
-    <h2 style="font-family:'Noto Serif KR',serif;color:#62c9a2;text-align:center;font-size:22px;margin-bottom:20px;">가이드 실습</h2>
-    <div style="background:#0d1420;border-radius:16px;border:1px solid #1c2b40;padding:20px;margin-bottom:20px;">
-      <p style="color:#92aabf;font-size:12px;margin-bottom:8px;">명상 안내 스크립트 또는 경험 기록</p>
-      <textarea id="g_script" rows="6" placeholder="오늘 스터디 모임에서 5분 호흡 명상을 안내했습니다..." style="width:100%;background:#121b2c;border:1px solid #1c2b40;border-radius:10px;padding:10px 13px;color:#dce8f2;font-size:14px;resize:vertical;outline:none;box-sizing:border-box;min-height:120px;"></textarea>
-      <p style="color:#92aabf;font-size:12px;margin:12px 0 6px;">개인 메모 <span style="color:#506070;">(선택)</span></p>
-      <input id="g_notes" placeholder="어려웠던 점, 느낀 점..." style="width:100%;background:#121b2c;border:1px solid #1c2b40;border-radius:10px;padding:10px 13px;color:#dce8f2;font-size:14px;outline:none;box-sizing:border-box;"/>
-      <div style="display:flex;justify-content:flex-end;margin-top:14px;">
-        <button onclick="submitGuide()" id="g_btn" style="padding:10px 24px;border-radius:24px;border:1.5px solid #d9b065;background:#d9b06520;color:#d9b065;font-size:14px;font-weight:600;cursor:pointer;">🤖 AI 피드백 받기</button>
+  <div style="max-width:540px;margin:0 auto;animation:fadeUp .4s ease both;">
+    <h2 style="font-family:'Noto Serif KR',serif;color:#62c9a2;text-align:center;font-size:22px;margin-bottom:4px;">가이드 실습</h2>
+    <p style="color:#506070;font-size:12px;text-align:center;margin-bottom:20px;">📌 내용은 본인과 교수자만 볼 수 있습니다</p>
+
+    <!-- 실습 정보 입력 -->
+    <div style="background:#0d1420;border-radius:16px;border:1px solid #1c2b40;padding:20px;margin-bottom:16px;">
+      <p style="color:#62c9a2;font-size:13px;font-weight:600;margin-bottom:14px;">📋 실습 정보</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
+        <div>
+          <p style="color:#92aabf;font-size:11px;margin-bottom:5px;">실습 일시</p>
+          <input type="datetime-local" id="g_datetime" style="width:100%;background:#121b2c;border:1px solid #1c2b40;border-radius:8px;padding:8px 10px;color:#dce8f2;font-size:13px;outline:none;box-sizing:border-box;"/>
+        </div>
+        <div>
+          <p style="color:#92aabf;font-size:11px;margin-bottom:5px;">실습 인원</p>
+          <input type="number" id="g_participants" min="1" placeholder="예: 8" style="width:100%;background:#121b2c;border:1px solid #1c2b40;border-radius:8px;padding:8px 10px;color:#dce8f2;font-size:13px;outline:none;box-sizing:border-box;"/>
+        </div>
+      </div>
+      <div style="margin-bottom:10px;">
+        <p style="color:#92aabf;font-size:11px;margin-bottom:5px;">대상자</p>
+        <input id="g_target" placeholder="예: 대학원 1학기 학생들" style="width:100%;background:#121b2c;border:1px solid #1c2b40;border-radius:8px;padding:8px 12px;color:#dce8f2;font-size:13px;outline:none;box-sizing:border-box;"/>
+      </div>
+      <div>
+        <p style="color:#92aabf;font-size:11px;margin-bottom:5px;">실습 주제 요약</p>
+        <input id="g_topic" placeholder="예: 5분 호흡 명상 - 코끝 감각 집중" style="width:100%;background:#121b2c;border:1px solid #1c2b40;border-radius:8px;padding:8px 12px;color:#dce8f2;font-size:13px;outline:none;box-sizing:border-box;"/>
       </div>
     </div>
+
+    <!-- 셀프 피드백 -->
+    <div style="background:#0d1420;border-radius:16px;border:1px solid #1c2b40;padding:20px;margin-bottom:16px;">
+      <p style="color:#62c9a2;font-size:13px;font-weight:600;margin-bottom:8px;">🪞 셀프 피드백</p>
+      <p style="color:#506070;font-size:11px;margin-bottom:8px;">진행 중 느낀 점, 잘된 부분, 어려웠던 부분을 솔직하게 적어보세요</p>
+      <textarea id="g_script" rows="5" placeholder="예) 목소리 톤은 안정적이었으나 침묵 타이밍이 어색했습니다. 참여자들의 반응이..." style="width:100%;background:#121b2c;border:1px solid #1c2b40;border-radius:10px;padding:10px 13px;color:#dce8f2;font-size:14px;resize:vertical;outline:none;box-sizing:border-box;min-height:110px;"></textarea>
+    </div>
+
+    <!-- 참여자 피드백 -->
+    <div style="background:#0d1420;border-radius:16px;border:1px solid #1c2b40;padding:20px;margin-bottom:16px;">
+      <p style="color:#62c9a2;font-size:13px;font-weight:600;margin-bottom:8px;">💬 참여자 피드백</p>
+      <p style="color:#506070;font-size:11px;margin-bottom:8px;">참여자들에게 받은 피드백이나 반응을 기록하세요 <span style="color:#2a3a4a;">(선택)</span></p>
+      <textarea id="g_notes" rows="3" placeholder="예) '목소리가 차분해서 집중하기 좋았다', '시간이 짧게 느껴졌다'는 반응이 있었습니다..." style="width:100%;background:#121b2c;border:1px solid #1c2b40;border-radius:10px;padding:10px 13px;color:#dce8f2;font-size:14px;resize:vertical;outline:none;box-sizing:border-box;"></textarea>
+    </div>
+
+    <div style="display:flex;justify-content:flex-end;margin-bottom:20px;">
+      <button onclick="submitGuide()" id="g_btn" style="padding:12px 28px;border-radius:24px;border:1.5px solid #d9b065;background:#d9b06520;color:#d9b065;font-size:14px;font-weight:600;cursor:pointer;">🤖 AI 샌드위치 피드백 받기</button>
+    </div>
+
     <div id="g_feedback" style="display:none;background:#0d1420;border-radius:16px;border:1px solid #d9b06544;padding:20px;margin-bottom:20px;">
-      <p style="color:#d9b065;font-size:14px;margin-bottom:10px;font-family:'Noto Serif KR',serif;">📝 AI 피드백</p>
+      <p style="color:#d9b065;font-size:14px;margin-bottom:10px;font-family:'Noto Serif KR',serif;">🥪 AI 샌드위치 피드백</p>
       <p id="g_fb_txt" style="color:#dce8f2;font-size:14px;line-height:1.85;white-space:pre-wrap;"></p>
     </div>
-    <p style="color:#92aabf;font-size:13px;margin-bottom:12px;">이전 제출 기록 (${history.length}개)</p>
+
+    <!-- 내 제출 기록 -->
+    <p style="color:#92aabf;font-size:13px;margin-bottom:12px;">📁 내 실습 기록 (${history.length}건)</p>
     <div>${history.map(h=>`
       <div style="background:#0d1420;border-radius:14px;border:1px solid #1c2b40;padding:16px;margin-bottom:10px;">
-        <span style="color:#506070;font-size:12px;display:block;margin-bottom:8px;">${fmtDT(h.createdAt)}</span>
-        <p style="color:#92aabf;font-size:13px;line-height:1.65;">${h.script?.slice(0,120)||""}...</p>
-        ${h.feedback?`<p style="color:#d9b065;font-size:12px;line-height:1.65;border-top:1px solid #1c2b40;padding-top:8px;margin-top:8px;">${h.feedback.slice(0,100)}...</p>`:""}
-      </div>`).join("")||'<p style="color:#506070;text-align:center;padding:32px 0;font-size:13px;">가이드 실습 기록이 없습니다</p>'}</div>
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
+          <div>
+            <p style="color:#dce8f2;font-size:14px;font-weight:600;margin-bottom:3px;">${h.topic||"(주제 없음)"}</p>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              ${h.practiceDate?`<span style="color:#506070;font-size:11px;">📅 ${h.practiceDate.slice(0,16).replace('T',' ')}</span>`:''}
+              ${h.target?`<span style="padding:2px 8px;border-radius:10px;font-size:10px;background:#7aaed420;color:#7aaed4;">${h.target}</span>`:''}
+              ${h.participants?`<span style="padding:2px 8px;border-radius:10px;font-size:10px;background:#62c9a220;color:#62c9a2;">${h.participants}명</span>`:''}
+            </div>
+          </div>
+          <span style="color:#2a3a4a;font-size:11px;white-space:nowrap;margin-left:8px;">${fmtDT(h.createdAt)}</span>
+        </div>
+        ${h.feedback?`<div style="background:#d9b06510;border-radius:8px;padding:8px 12px;border-left:3px solid #d9b065;"><p style="color:#d9b065;font-size:12px;line-height:1.7;">${h.feedback.slice(0,120)}...</p></div>`:""}
+      </div>`).join("")||'<p style="color:#506070;text-align:center;padding:32px 0;font-size:13px;">실습 기록이 없습니다</p>'}
+    </div>
+
+    ${isAdmin() && allGuides.length > 0 ? `
+    <div style="margin-top:24px;border-top:1px solid #1c2b40;padding-top:20px;">
+      <p style="color:#62c9a2;font-size:13px;font-weight:600;margin-bottom:12px;">📊 전체 제출 현황 (관리자) — 내용 비공개</p>
+      ${allGuides.map(h=>`
+      <div style="display:flex;align-items:center;gap:10px;background:#121b2c;border-radius:10px;padding:10px 14px;border:1px solid #1c2b40;margin-bottom:8px;">
+        <div style="width:28px;height:28px;border-radius:50%;background:#62c9a225;display:flex;align-items:center;justify-content:center;color:#62c9a2;font-weight:700;font-size:12px;flex-shrink:0;">${h.userName?.[0]||"?"}</div>
+        <div style="flex:1;min-width:0;">
+          <p style="color:#dce8f2;font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${h.userName||"(이름없음)"}</p>
+          <p style="color:#506070;font-size:11px;">${h.topic||"주제 없음"} · ${h.practiceDate?h.practiceDate.slice(0,10):fmtDT(h.createdAt)}</p>
+        </div>
+        <span style="padding:2px 8px;border-radius:8px;font-size:10px;background:#62c9a220;color:#62c9a2;white-space:nowrap;">제출완료</span>
+      </div>`).join("")}
+    </div>` : ""}
   </div>`;
+
+  // datetime 기본값: 현재 시각
+  const dtInput = $("g_datetime");
+  if(dtInput && !dtInput.value) {
+    const now = new Date();
+    now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+    dtInput.value = now.toISOString().slice(0,16);
+  }
 }
 
 async function submitGuide() {
-  const script=$("g_script")?.value?.trim();if(!script)return;
+  const script=$("g_script")?.value?.trim();
+  if(!script){alert("셀프 피드백을 입력해주세요.");return;}
   const btn=$("g_btn");if(btn){btn.disabled=true;btn.textContent="생성 중...";}
   const fb=$("g_feedback"),fbt=$("g_fb_txt");
   if(fb)fb.style.display="block";if(fbt)fbt.textContent="생각 중...";
+
+  const topic        = $("g_topic")?.value||"";
+  const practiceDate = $("g_datetime")?.value||"";
+  const target       = $("g_target")?.value||"";
+  const participants = $("g_participants")?.value||"";
+  const notes        = $("g_notes")?.value||"";
+
+  const prompt = [
+    topic        ? "실습 주제: "+topic : "",
+    practiceDate ? "실습 일시: "+practiceDate : "",
+    target       ? "대상자: "+target : "",
+    participants ? "실습 인원: "+participants+"명" : "",
+    "\n[셀프 피드백]\n"+script,
+    notes ? "\n[참여자 피드백]\n"+notes : "",
+  ].filter(Boolean).join("\n");
+
   try{
-    const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:500,
-        system:"마음챙김 명상 교육 전문가입니다. ✅ 잘된 점: (2가지)\n🔧 개선점: (1-2가지)\n💡 다음 제안: (1가지) 형식으로 300자 내외 한국어로.",
-        messages:[{role:"user",content:script+($("g_notes")?.value?`\n메모:${$("g_notes").value}`:"")}]})});
+    const res=await fetch("https://api.anthropic.com/v1/messages",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({
+        model:"claude-sonnet-4-20250514",
+        max_tokens:600,
+        system:"마음챙김 명상 교육 전문가입니다. 가이드 실습 기록을 읽고 샌드위치 피드백을 제공하세요.\n① 👍 잘된 점 (2가지, 구체적으로)\n② 🔧 개선 포인트 (1가지)\n③ 💡 다음 실습을 위한 제안 (1가지)\n따뜻하고 구체적으로, 400자 이내 한국어로.",
+        messages:[{role:"user",content:prompt}]
+      })
+    });
     const d=await res.json();
     const reply=d.content?.map(c=>c.text||"").join("")||"오류";
     if(fbt)fbt.textContent=reply;
     const gid=`${currentUser.uid}_${Date.now()}`;
-    await FB.set("guides",gid,{uid:currentUser.uid,userName:currentUser.displayName,script,notes:$("g_notes")?.value||"",feedback:reply,createdAt:new Date().toISOString()});
+    await FB.set("guides",gid,{
+      uid:currentUser.uid,
+      userName:currentUser.displayName||currentUser.email,
+      topic, practiceDate, target, participants,
+      script,           // 셀프 피드백 (비공개)
+      notes,            // 참여자 피드백 (비공개)
+      feedback:reply,   // AI 피드백 (비공개)
+      createdAt:new Date().toISOString()
+      // ※ 공개되는 정보: userName, topic, practiceDate, participants (제출 여부 확인용)
+    });
   }catch(e){if(fbt)fbt.textContent="오류: "+e.message;}
-  if(btn){btn.disabled=false;btn.textContent="🤖 AI 피드백 받기";}
+  if(btn){btn.disabled=false;btn.textContent="🤖 AI 샌드위치 피드백 받기";}
 }
 
 /* ══════════════════════════════════════════════════
