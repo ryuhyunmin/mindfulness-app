@@ -129,7 +129,8 @@ const KO_DAYS   = ["일","월","화","수","목","금","토"];
 /* ══════════════════════════════════════════════════
    헬퍼
    ══════════════════════════════════════════════════ */
-const isoDate     = d => d.toISOString().slice(0,10);
+// 로컬 날짜 기준 (UTC 변환 없이 — 한국 시간 정확히 반영)
+const isoDate     = d => { const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,"0"), dd=String(d.getDate()).padStart(2,"0"); return y+"-"+m+"-"+dd; };
 const today       = () => isoDate(new Date());
 const addDays     = (ds,n) => { const d=new Date(ds); d.setDate(d.getDate()+n); return isoDate(d); };
 const daysBetween = (a,b) => Math.round((new Date(b)-new Date(a))/86400000)+1;
@@ -766,7 +767,7 @@ async function renderChallenge() {
   renderCalGrid();
 
   const bl = $("board_list");
-  if(bl) bl.innerHTML = board.slice(0,20).map((u,i)=>`
+  if(bl) bl.innerHTML = board.slice(0,26).map((u,i)=>`
     <div style="display:flex;align-items:center;gap:10px;background:${u.uid===currentUser.uid?'#62c9a220':'#121b2c'};border-radius:10px;padding:9px 14px;border:1px solid ${u.uid===currentUser.uid?'#62c9a244':'#1c2b40'};margin-bottom:8px;">
       <span style="color:#d9b065;width:18px;font-weight:700;font-size:12px;">${i+1}</span>
       <button onclick="viewMemberJournals('${u.uid}','${(u.userName||'참여자').replace(/'/g,'')}')" style="color:#dce8f2;font-size:13px;flex:1;text-align:left;background:transparent;border:none;cursor:pointer;padding:0;text-decoration:underline;text-underline-offset:2px;">${u.userName||u.uid}${u.uid===currentUser.uid?" (나)":""}</button>
@@ -925,9 +926,13 @@ function renderJournalInner(date, j, inner) {
       <p style="color:#92aabf;font-size:12px;margin-bottom:8px;">📝 명상 기록</p>
       <textarea id="j_body" rows="5" placeholder="오늘 명상 중 어떤 것을 경험했나요?" style="width:100%;background:#121b2c;border:1px solid #1c2b40;border-radius:10px;padding:10px 13px;color:#dce8f2;font-size:14px;resize:vertical;outline:none;box-sizing:border-box;">${j?.body||""}</textarea>
     </div>
-    <div style="margin-bottom:22px;">
+    <div style="margin-bottom:14px;">
       <p style="color:#92aabf;font-size:12px;margin-bottom:8px;">✨ 오늘의 통찰 <span style="color:#506070;">(선택)</span></p>
       <input id="j_insight" value="${j?.insight||""}" placeholder="명상을 통해 깨달은 것..." style="width:100%;background:#121b2c;border:1px solid #1c2b40;border-radius:10px;padding:10px 13px;color:#dce8f2;font-size:14px;outline:none;box-sizing:border-box;"/>
+    </div>
+    <div style="margin-bottom:22px;">
+      <p style="color:#92aabf;font-size:12px;margin-bottom:8px;">🙏 감사 일기 <span style="color:#506070;">(선택)</span></p>
+      <textarea id="j_gratitude" rows="3" placeholder="오늘 감사한 순간... (예: 따뜻한 햇살, 친구의 문자, 고요한 아침)" style="width:100%;background:#121b2c;border:1px solid #1c2b40;border-radius:10px;padding:10px 13px;color:#dce8f2;font-size:14px;resize:vertical;outline:none;box-sizing:border-box;">${j?.gratitude||""}</textarea>
     </div>
     <div style="display:flex;gap:10px;justify-content:flex-end;">
       ${j?`<button onclick="closeJournal()" style="padding:10px 20px;border-radius:24px;border:1px solid #1c2b40;background:transparent;color:#92aabf;font-size:14px;cursor:pointer;">취소</button>`:""}
@@ -979,7 +984,7 @@ async function saveJournal(date) {
   const entry={uid:currentUser.uid,userName:currentUser.displayName,date,
     moods:[...window._jMoods],mood:window._jMoods[0]||"",duration:dur,
     reflectQ:$("j_reflectQ")?.value||"",body:$("j_body")?.value||"",
-    insight:$("j_insight")?.value||"",createdAt:new Date().toISOString()};
+    insight:$("j_insight")?.value||"",gratitude:$("j_gratitude")?.value||"",createdAt:new Date().toISOString()};
   await FB.set("journals",`${currentUser.uid}_${date}`,entry);
   const ch=await FB.get("challenges",currentUser.uid);
   if(ch){
@@ -1622,8 +1627,9 @@ async function renderGuide() {
       <textarea id="g_notes" rows="3" placeholder="예) '목소리가 차분해서 집중하기 좋았다', '시간이 짧게 느껴졌다'는 반응이 있었습니다..." style="width:100%;background:#121b2c;border:1px solid #1c2b40;border-radius:10px;padding:10px 13px;color:#dce8f2;font-size:14px;resize:vertical;outline:none;box-sizing:border-box;"></textarea>
     </div>
 
-    <div style="display:flex;justify-content:flex-end;margin-bottom:20px;">
-      <button onclick="submitGuide()" id="g_btn" style="padding:12px 28px;border-radius:24px;border:1.5px solid #d9b065;background:#d9b06520;color:#d9b065;font-size:14px;font-weight:600;cursor:pointer;">🤖 AI 샌드위치 피드백 받기</button>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-bottom:20px;">
+      <button onclick="saveGuideOnly()" id="g_save_btn" style="padding:12px 24px;border-radius:24px;border:1.5px solid #62c9a2;background:#62c9a220;color:#62c9a2;font-size:14px;font-weight:600;cursor:pointer;">💾 저장하기</button>
+      <button onclick="submitGuide()" id="g_btn" style="padding:12px 24px;border-radius:24px;border:1.5px solid #d9b065;background:#d9b06520;color:#d9b065;font-size:14px;font-weight:600;cursor:pointer;">🤖 AI 피드백 + 저장</button>
     </div>
 
     <div id="g_feedback" style="display:none;background:#0d1420;border-radius:16px;border:1px solid #d9b06544;padding:20px;margin-bottom:20px;">
@@ -1671,6 +1677,35 @@ async function renderGuide() {
     const now = new Date();
     now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
     dtInput.value = now.toISOString().slice(0,16);
+  }
+}
+
+// AI 없이 바로 저장
+async function saveGuideOnly() {
+  const script = $("g_script")?.value?.trim();
+  if(!script){ alert("셀프 피드백을 입력해주세요."); return; }
+  const btn = $("g_save_btn");
+  if(btn){ btn.disabled=true; btn.textContent="저장 중..."; }
+  const topic        = $("g_topic")?.value||"";
+  const practiceDate = $("g_datetime")?.value||"";
+  const target       = $("g_target")?.value||"";
+  const participants = $("g_participants")?.value||"";
+  const notes        = $("g_notes")?.value||"";
+  try {
+    const gid = `${currentUser.uid}_${Date.now()}`;
+    await FB.set("guides", gid, {
+      uid: currentUser.uid,
+      userName: currentUser.displayName||currentUser.email,
+      topic, practiceDate, target, participants,
+      script, notes, feedback:"",
+      createdAt: new Date().toISOString()
+    });
+    if(btn){ btn.disabled=false; btn.textContent="💾 저장하기"; }
+    alert("✅ 저장되었습니다!");
+    renderGuide();
+  } catch(e) {
+    if(btn){ btn.disabled=false; btn.textContent="💾 저장하기"; }
+    alert("저장 오류: "+e.message);
   }
 }
 
@@ -1761,12 +1796,13 @@ async function renderMyPage() {
       </div>
     </div>
     <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:16px;">
-      <button onclick="switchMPTab('mpov')" id="mpt_mpov" style="padding:7px 14px;border-radius:20px;border:1px solid #62c9a2;background:#62c9a220;color:#62c9a2;font-size:12px;cursor:pointer;">📊 개요</button>
-      <button onclick="switchMPTab('mpgr')" id="mpt_mpgr" style="padding:7px 14px;border-radius:20px;border:1px solid #1c2b40;background:transparent;color:#92aabf;font-size:12px;cursor:pointer;">📈 그래프</button>
-      <button onclick="switchMPTab('mpj')"  id="mpt_mpj"  style="padding:7px 14px;border-radius:20px;border:1px solid #1c2b40;background:transparent;color:#92aabf;font-size:12px;cursor:pointer;">📔 저널(${journals.length})</button>
-      <button onclick="switchMPTab('mps')"  id="mpt_mps"  style="padding:7px 14px;border-radius:20px;border:1px solid #1c2b40;background:transparent;color:#92aabf;font-size:12px;cursor:pointer;">🧘 세션(${sessions.length})</button>
-      <button onclick="switchMPTab('mpr')"  id="mpt_mpr"  style="padding:7px 14px;border-radius:20px;border:1px solid #1c2b40;background:transparent;color:#92aabf;font-size:12px;cursor:pointer;">🎙️ 녹음(${recordings.length})</button>
-      <button onclick="switchMPTab('mpg')"  id="mpt_mpg"  style="padding:7px 14px;border-radius:20px;border:1px solid #1c2b40;background:transparent;color:#92aabf;font-size:12px;cursor:pointer;">👩‍🏫 가이드(${guideHistory.length})</button>
+      <button onclick="switchMPTab('mpov')"     id="mpt_mpov"     style="padding:7px 14px;border-radius:20px;border:1px solid #62c9a2;background:#62c9a220;color:#62c9a2;font-size:12px;cursor:pointer;">📊 개요</button>
+      <button onclick="switchMPTab('mpgarden')" id="mpt_mpgarden" style="padding:7px 14px;border-radius:20px;border:1px solid #1c2b40;background:transparent;color:#92aabf;font-size:12px;cursor:pointer;">🌱 씨앗</button>
+      <button onclick="switchMPTab('mpgr')"     id="mpt_mpgr"     style="padding:7px 14px;border-radius:20px;border:1px solid #1c2b40;background:transparent;color:#92aabf;font-size:12px;cursor:pointer;">📈 그래프</button>
+      <button onclick="switchMPTab('mpj')"      id="mpt_mpj"      style="padding:7px 14px;border-radius:20px;border:1px solid #1c2b40;background:transparent;color:#92aabf;font-size:12px;cursor:pointer;">📔 저널(${journals.length})</button>
+      <button onclick="switchMPTab('mps')"      id="mpt_mps"      style="padding:7px 14px;border-radius:20px;border:1px solid #1c2b40;background:transparent;color:#92aabf;font-size:12px;cursor:pointer;">🧘 세션(${sessions.length})</button>
+      <button onclick="switchMPTab('mpr')"      id="mpt_mpr"      style="padding:7px 14px;border-radius:20px;border:1px solid #1c2b40;background:transparent;color:#92aabf;font-size:12px;cursor:pointer;">🎙️ 녹음(${recordings.length})</button>
+      <button onclick="switchMPTab('mpg')"      id="mpt_mpg"      style="padding:7px 14px;border-radius:20px;border:1px solid #1c2b40;background:transparent;color:#92aabf;font-size:12px;cursor:pointer;">👩‍🏫 가이드(${guideHistory.length})</button>
     </div>
     <!-- 이름 수정 버튼 -->
     <div id="name_edit_wrap" style="display:none;background:#0d1420;border-radius:12px;border:1px solid #62c9a244;padding:14px 16px;margin-bottom:16px;">
@@ -1787,8 +1823,9 @@ function switchMPTab(id) {
     const sel=b.id==="mpt_"+id;
     b.style.borderColor=sel?"#62c9a2":"#1c2b40";b.style.background=sel?"#62c9a220":"transparent";b.style.color=sel?"#62c9a2":"#92aabf";
   });
-  if(id==="mpov") renderMPOverview();
-  if(id==="mpgr") renderMPGraph();
+  if(id==="mpov")     renderMPOverview();
+  if(id==="mpgarden") renderMPGarden();
+  if(id==="mpgr")     renderMPGraph();
   if(id==="mpj")  renderMPJournals();
   if(id==="mps")  renderMPSessions();
   if(id==="mpr")  renderMPRecordings();
@@ -1925,6 +1962,238 @@ function renderMPGraph(){
           }).join("");
         })()}
       </div>
+    </div>
+  </div>`;
+}
+
+function renderMPGarden(){
+  const {sessions, journals, challenge, streak} = window._mpData;
+  const mc = $("mp_content"); if(!mc) return;
+
+  const checkins = challenge ? (challenge.checkedDates?.length||0) : 0;
+  const STAGES = [
+    {min:0,  max:2,  name:"씨앗",     desc:"명상의 씨앗을 심었어요",          nextGoal:3,   emoji:"🌰"},
+    {min:3,  max:6,  name:"새싹",     desc:"작은 싹이 돋아났어요",             nextGoal:7,   emoji:"🌱"},
+    {min:7,  max:13, name:"어린잎",   desc:"잎사귀가 하나둘 펼쳐지고 있어요",   nextGoal:14,  emoji:"🍀"},
+    {min:14, max:20, name:"꽃봉오리", desc:"곧 아름다운 꽃이 피어날 거예요",    nextGoal:21,  emoji:"🌿"},
+    {min:21, max:29, name:"꽃",       desc:"마음에 꽃이 활짝 피었어요",         nextGoal:30,  emoji:"🌸"},
+    {min:30, max:49, name:"작은 나무", desc:"든든한 나무로 자라고 있어요",      nextGoal:50,  emoji:"🌲"},
+    {min:50, max:99, name:"큰 나무",  desc:"깊은 뿌리를 내린 나무예요",         nextGoal:100, emoji:"🌳"},
+    {min:100,max:999,name:"숲",       desc:"당신의 마음은 이제 한 그루의 숲이에요", nextGoal:null, emoji:"🏕️"},
+  ];
+
+  const stageIdx = STAGES.findIndex(s => checkins >= s.min && checkins <= s.max);
+  const stage = STAGES[Math.max(0,stageIdx)];
+  const progress = stage.nextGoal
+    ? Math.min(100, Math.round((checkins - stage.min) / (stage.nextGoal - stage.min) * 100))
+    : 100;
+
+  // SVG 캐릭터 (8단계)
+  const SVGS = [
+    // 0: 씨앗
+    `<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:200px;filter:drop-shadow(0 8px 24px #62c9a230)">
+      <ellipse cx="100" cy="175" rx="50" ry="10" fill="#0a140a" opacity="0.5"/>
+      <ellipse cx="100" cy="155" rx="20" ry="24" fill="#2d5a1b"/>
+      <ellipse cx="100" cy="147" rx="15" ry="19" fill="#3d7a24"/>
+      <ellipse cx="100" cy="141" rx="10" ry="14" fill="#4d9a2e"/>
+      <ellipse cx="95" cy="138" rx="5" ry="8" fill="#6dc84a" opacity="0.6"/>
+      <ellipse cx="105" cy="136" rx="4" ry="6" fill="#7de44e" opacity="0.4"/>
+    </svg>`,
+    // 1: 새싹
+    `<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:200px;filter:drop-shadow(0 8px 24px #62c9a240)">
+      <ellipse cx="100" cy="178" rx="50" ry="10" fill="#0a140a" opacity="0.5"/>
+      <rect x="97" y="138" width="6" height="42" rx="3" fill="#3d7a24"/>
+      <ellipse cx="100" cy="136" rx="20" ry="11" fill="#4d9a2e" transform="rotate(-20 100 136)"/>
+      <ellipse cx="100" cy="134" rx="20" ry="11" fill="#5cb535" transform="rotate(20 100 134)"/>
+      <ellipse cx="100" cy="126" rx="8" ry="10" fill="#6dd440"/>
+      <ellipse cx="100" cy="122" rx="5" ry="6" fill="#90ef60"/>
+    </svg>`,
+    // 2: 어린잎
+    `<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:200px;filter:drop-shadow(0 8px 24px #62c9a240)">
+      <ellipse cx="100" cy="178" rx="55" ry="10" fill="#0a140a" opacity="0.5"/>
+      <rect x="97" y="118" width="6" height="62" rx="3" fill="#3d7a24"/>
+      <ellipse cx="76" cy="143" rx="24" ry="12" fill="#4d9a2e" transform="rotate(-35 76 143)"/>
+      <ellipse cx="124" cy="138" rx="24" ry="12" fill="#5cb535" transform="rotate(35 124 138)"/>
+      <ellipse cx="83" cy="124" rx="20" ry="10" fill="#6dd440" transform="rotate(-18 83 124)"/>
+      <ellipse cx="117" cy="121" rx="20" ry="10" fill="#7de44e" transform="rotate(18 117 121)"/>
+      <ellipse cx="100" cy="114" rx="10" ry="12" fill="#90ef60"/>
+    </svg>`,
+    // 3: 꽃봉오리
+    `<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:200px;filter:drop-shadow(0 8px 24px #d9b06530)">
+      <ellipse cx="100" cy="178" rx="55" ry="10" fill="#0a140a" opacity="0.5"/>
+      <rect x="97" y="115" width="6" height="65" rx="3" fill="#3d7a24"/>
+      <ellipse cx="73" cy="146" rx="26" ry="13" fill="#4d9a2e" transform="rotate(-38 73 146)"/>
+      <ellipse cx="127" cy="141" rx="26" ry="13" fill="#5cb535" transform="rotate(38 127 141)"/>
+      <ellipse cx="80" cy="127" rx="22" ry="11" fill="#6dd440" transform="rotate(-20 80 127)"/>
+      <ellipse cx="120" cy="124" rx="22" ry="11" fill="#7de44e" transform="rotate(20 120 124)"/>
+      <ellipse cx="100" cy="118" rx="12" ry="16" fill="#2a6a3a"/>
+      <ellipse cx="100" cy="110" rx="9" ry="11" fill="#3d8a4e"/>
+      <ellipse cx="100" cy="105" rx="7" ry="8" fill="#d9b065" opacity="0.9"/>
+      <ellipse cx="100" cy="101" rx="5" ry="5" fill="#f5cc80"/>
+    </svg>`,
+    // 4: 꽃
+    `<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:200px;filter:drop-shadow(0 8px 32px #f4a0c050)">
+      <ellipse cx="100" cy="178" rx="55" ry="10" fill="#0a140a" opacity="0.5"/>
+      <rect x="97" y="118" width="6" height="62" rx="3" fill="#3d7a24"/>
+      <ellipse cx="70" cy="148" rx="28" ry="14" fill="#4d9a2e" transform="rotate(-38 70 148)"/>
+      <ellipse cx="130" cy="143" rx="28" ry="14" fill="#5cb535" transform="rotate(38 130 143)"/>
+      <ellipse cx="78" cy="128" rx="23" ry="12" fill="#6dd440" transform="rotate(-20 78 128)"/>
+      <ellipse cx="122" cy="125" rx="23" ry="12" fill="#7de44e" transform="rotate(20 122 125)"/>
+      <ellipse cx="100" cy="103" rx="13" ry="16" fill="#f4a0c0"/>
+      <ellipse cx="84"  cy="106" rx="13" ry="16" fill="#f4b8cc" transform="rotate(-36 84 106)"/>
+      <ellipse cx="116" cy="106" rx="13" ry="16" fill="#f4b8cc" transform="rotate(36 116 106)"/>
+      <ellipse cx="87"  cy="94"  rx="12" ry="14" fill="#f9cce0" transform="rotate(-72 87 94)"/>
+      <ellipse cx="113" cy="94"  rx="12" ry="14" fill="#f9cce0" transform="rotate(72 113 94)"/>
+      <circle  cx="100" cy="103" r="11"  fill="#d9b065"/>
+      <circle  cx="100" cy="103" r="7"   fill="#f5cc80"/>
+      <circle  cx="100" cy="103" r="3"   fill="#ffe4a0"/>
+    </svg>`,
+    // 5: 작은 나무
+    `<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:200px;filter:drop-shadow(0 8px 32px #3d8a2440)">
+      <ellipse cx="100" cy="182" rx="60" ry="12" fill="#0a140a" opacity="0.6"/>
+      <rect x="93" y="142" width="14" height="42" rx="6" fill="#6b4c1e"/>
+      <rect x="89" y="160" width="10" height="28" rx="4" fill="#8a6a30"/>
+      <ellipse cx="100" cy="138" rx="40" ry="32" fill="#254d15"/>
+      <ellipse cx="100" cy="122" rx="33" ry="26" fill="#2d6a1a"/>
+      <ellipse cx="100" cy="108" rx="26" ry="20" fill="#3d8a24"/>
+      <ellipse cx="100" cy="95"  rx="19" ry="16" fill="#4d9a2e"/>
+      <ellipse cx="100" cy="84"  rx="13" ry="11" fill="#5cb535"/>
+      <ellipse cx="78"  cy="118" rx="14" ry="11" fill="#3d8a24" opacity="0.7"/>
+      <ellipse cx="122" cy="115" rx="14" ry="11" fill="#3d8a24" opacity="0.7"/>
+    </svg>`,
+    // 6: 큰 나무
+    `<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:200px;filter:drop-shadow(0 8px 40px #3d8a2450)">
+      <ellipse cx="100" cy="184" rx="65" ry="13" fill="#0a140a" opacity="0.7"/>
+      <rect x="90" y="138" width="20" height="48" rx="8" fill="#6b4c1e"/>
+      <rect x="84" y="162" width="14" height="30" rx="5" fill="#8a6a30"/>
+      <ellipse cx="100" cy="140" rx="52" ry="38" fill="#1e4010"/>
+      <ellipse cx="100" cy="120" rx="44" ry="32" fill="#254d15"/>
+      <ellipse cx="100" cy="102" rx="36" ry="26" fill="#2d6a1a"/>
+      <ellipse cx="100" cy="86"  rx="28" ry="22" fill="#3d8a24"/>
+      <ellipse cx="100" cy="72"  rx="20" ry="17" fill="#4d9a2e"/>
+      <ellipse cx="100" cy="60"  rx="13" ry="12" fill="#5cb535"/>
+      <ellipse cx="65"  cy="118" rx="20" ry="15" fill="#254d15" opacity="0.8"/>
+      <ellipse cx="135" cy="113" rx="20" ry="15" fill="#254d15" opacity="0.8"/>
+      <ellipse cx="68"  cy="100" rx="16" ry="12" fill="#2d6a1a" opacity="0.7"/>
+      <ellipse cx="132" cy="97"  rx="16" ry="12" fill="#2d6a1a" opacity="0.7"/>
+      <circle  cx="88"  cy="74"  r="4"   fill="#f4a0c0" opacity="0.6"/>
+      <circle  cx="115" cy="70"  r="3"   fill="#f4a0c0" opacity="0.5"/>
+    </svg>`,
+    // 7: 숲
+    `<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:200px;filter:drop-shadow(0 8px 48px #62c9a260)">
+      <ellipse cx="100" cy="185" rx="72" ry="14" fill="#0a140a" opacity="0.8"/>
+      <rect x="48" y="162" width="12" height="26" rx="4" fill="#6b4c1e"/>
+      <ellipse cx="54" cy="154" rx="24" ry="20" fill="#1e4010"/>
+      <ellipse cx="54" cy="140" rx="19" ry="16" fill="#254d15"/>
+      <ellipse cx="54" cy="128" rx="14" ry="11" fill="#3d8a24"/>
+      <rect x="142" y="164" width="12" height="24" rx="4" fill="#6b4c1e"/>
+      <ellipse cx="148" cy="156" rx="24" ry="20" fill="#1e4010"/>
+      <ellipse cx="148" cy="142" rx="19" ry="16" fill="#254d15"/>
+      <ellipse cx="148" cy="130" rx="14" ry="11" fill="#3d8a24"/>
+      <rect x="90" y="146" width="20" height="42" rx="8" fill="#6b4c1e"/>
+      <ellipse cx="100" cy="144" rx="48" ry="36" fill="#162e0e"/>
+      <ellipse cx="100" cy="126" rx="40" ry="30" fill="#1e4010"/>
+      <ellipse cx="100" cy="108" rx="32" ry="24" fill="#254d15"/>
+      <ellipse cx="100" cy="93"  rx="25" ry="20" fill="#2d6a1a"/>
+      <ellipse cx="100" cy="79"  rx="18" ry="15" fill="#3d8a24"/>
+      <ellipse cx="100" cy="67"  rx="12" ry="11" fill="#4d9a2e"/>
+      <ellipse cx="100" cy="57"  rx="8"  rx2="8" ry="8" fill="#5cb535"/>
+      <circle  cx="75"  cy="122" r="5"   fill="#f4a0c0" opacity="0.7"/>
+      <circle  cx="128" cy="118" r="5"   fill="#f4a0c0" opacity="0.7"/>
+      <circle  cx="100" cy="72"  r="4"   fill="#d9b065" opacity="0.9"/>
+      <circle  cx="60"  cy="135" r="3"   fill="#7de44e" opacity="0.6"/>
+      <circle  cx="140" cy="137" r="3"   fill="#7de44e" opacity="0.6"/>
+    </svg>`,
+  ];
+
+  const BADGES = [
+    {icon:"🌿", label:"첫 명상",   desc:"첫 번째 체크인",       earned: checkins >= 1        },
+    {icon:"🔥", label:"7일 연속",  desc:"7일 연속 명상",         earned: streak >= 7          },
+    {icon:"📔", label:"저널리스트", desc:"저널 10개 작성",        earned: journals.length >= 10},
+    {icon:"🌸", label:"21일 달인", desc:"챌린지 21일 달성",      earned: checkins >= 21       },
+    {icon:"🏆", label:"30일 완주", desc:"챌린지 30일 완주",      earned: checkins >= 30       },
+    {icon:"💫", label:"명상 고수", desc:"총 세션 50회 달성",     earned: sessions.length >= 50},
+    {icon:"🧘", label:"마음의 숲", desc:"챌린지 100일 달성",     earned: checkins >= 100      },
+  ];
+
+  const svgChar = SVGS[Math.min(stageIdx, SVGS.length-1)];
+  const earnedBadges = BADGES.filter(b=>b.earned);
+  const lockedBadges = BADGES.filter(b=>!b.earned);
+
+  mc.innerHTML = `
+  <div style="animation:fadeUp .4s ease both;">
+
+    <!-- 캐릭터 카드 -->
+    <div style="background:linear-gradient(135deg,#0d1f0d 0%,#0d1420 60%,#06080e 100%);border-radius:20px;border:1px solid #62c9a230;padding:28px 20px;margin-bottom:18px;text-align:center;position:relative;overflow:hidden;">
+      <div style="position:absolute;top:0;left:0;right:0;bottom:0;background:radial-gradient(ellipse at 50% 80%,#62c9a215 0%,transparent 60%);pointer-events:none;"></div>
+
+      <p style="color:#62c9a2;font-size:11px;letter-spacing:2px;text-transform:uppercase;margin-bottom:6px;opacity:0.7;">나의 명상 씨앗</p>
+      <h3 style="font-family:'Noto Serif KR',serif;color:#dce8f2;font-size:22px;margin-bottom:4px;">${stage.emoji} ${stage.name}</h3>
+      <p style="color:#92aabf;font-size:13px;margin-bottom:20px;">${stage.desc}</p>
+
+      <!-- SVG 캐릭터 -->
+      <div style="display:flex;justify-content:center;margin-bottom:20px;">
+        <div style="width:160px;height:160px;display:flex;align-items:flex-end;justify-content:center;">
+          ${svgChar}
+        </div>
+      </div>
+
+      <!-- 체크인 수 -->
+      <div style="display:flex;justify-content:center;gap:24px;margin-bottom:20px;">
+        <div><div style="color:#62c9a2;font-weight:700;font-size:24px;">${checkins}</div><div style="color:#506070;font-size:11px;">체크인</div></div>
+        <div style="width:1px;background:#1c2b40;"></div>
+        <div><div style="color:#d9b065;font-weight:700;font-size:24px;">${streak}</div><div style="color:#506070;font-size:11px;">연속 일수</div></div>
+        <div style="width:1px;background:#1c2b40;"></div>
+        <div><div style="color:#7aaed4;font-weight:700;font-size:24px;">${earnedBadges.length}</div><div style="color:#506070;font-size:11px;">뱃지</div></div>
+      </div>
+
+      <!-- 다음 단계 진행바 -->
+      ${stage.nextGoal ? `
+      <div style="text-align:left;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;">
+        <span style="color:#506070;font-size:12px;">다음 단계: <span style="color:#62c9a2;">${STAGES[Math.min(stageIdx+1,STAGES.length-1)].name}</span></span>
+        <span style="color:#62c9a2;font-size:12px;font-weight:600;">${checkins}/${stage.nextGoal}일</span>
+      </div>
+      <div style="height:8px;background:#1c2b40;border-radius:4px;overflow:hidden;">
+        <div style="height:8px;width:${progress}%;background:linear-gradient(90deg,#3d8a6a,#62c9a2);border-radius:4px;transition:width 1s ease;"></div>
+      </div>
+      <p style="color:#2a3a4a;font-size:11px;margin-top:6px;">${stage.nextGoal - checkins}일 더 명상하면 다음 단계로 성장해요</p>
+      ` : `
+      <div style="background:#62c9a220;border-radius:12px;padding:10px;border:1px solid #62c9a240;">
+        <p style="color:#62c9a2;font-size:13px;">🎉 최고 단계에 도달했어요! 당신은 명상의 숲이 되었습니다.</p>
+      </div>
+      `}
+    </div>
+
+    <!-- 전체 성장 단계 로드맵 -->
+    <div style="background:#0d1420;border-radius:16px;border:1px solid #1c2b40;padding:18px;margin-bottom:18px;">
+      <p style="color:#dce8f2;font-size:14px;font-weight:600;margin-bottom:14px;">🗺️ 성장 여정</p>
+      <div style="display:flex;flex-direction:column;gap:0;">
+        ${STAGES.map((s,i)=>{
+          const done = checkins >= s.min;
+          const current = i === stageIdx;
+          return '<div style="display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid #1c2b4040;">'
+            +'<div style="width:32px;height:32px;border-radius:50%;border:2px solid '+(current?'#62c9a2':done?'#3d7a24':'#1c2b40')+';background:'+(current?'#62c9a220':done?'#1e3d0e':'transparent')+';display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0;">'+(done?s.emoji:'⬜')+'</div>'
+            +'<div style="flex:1;">'
+            +'<div style="color:'+(current?'#62c9a2':done?'#dce8f2':'#2a3a4a')+';font-size:13px;font-weight:'+(current?'700':'400')+';">'+s.name+(current?' ← 현재':'')+'</div>'
+            +'<div style="color:#506070;font-size:11px;">'+s.min+'일'+( s.nextGoal ? '~'+(s.nextGoal-1)+'일' : ' 이상' )+'</div>'
+            +'</div>'
+            +'</div>';
+        }).join("")}
+      </div>
+    </div>
+
+    <!-- 뱃지 컬렉션 -->
+    <div style="background:#0d1420;border-radius:16px;border:1px solid #1c2b40;padding:18px;">
+      <p style="color:#dce8f2;font-size:14px;font-weight:600;margin-bottom:14px;">🏅 뱃지 컬렉션 (${earnedBadges.length}/${BADGES.length})</p>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;">
+        ${BADGES.map(b=>`
+        <div style="text-align:center;padding:12px 6px;background:${b.earned?'#62c9a215':'#121b2c'};border-radius:12px;border:1px solid ${b.earned?'#62c9a240':'#1c2b40'};opacity:${b.earned?1:0.4};">
+          <div style="font-size:22px;margin-bottom:4px;">${b.earned?b.icon:'🔒'}</div>
+          <div style="color:${b.earned?'#dce8f2':'#506070'};font-size:10px;font-weight:600;line-height:1.3;">${b.label}</div>
+          <div style="color:#2a3a4a;font-size:9px;margin-top:2px;">${b.desc}</div>
+        </div>`).join("")}
+      </div>
+      ${earnedBadges.length > 0 ? '<p style="color:#62c9a2;font-size:12px;margin-top:12px;text-align:center;">'+earnedBadges.length+'개의 뱃지를 획득했어요! 🎉</p>' : '<p style="color:#506070;font-size:12px;margin-top:12px;text-align:center;">명상을 시작하면 뱃지를 얻을 수 있어요</p>'}
     </div>
   </div>`;
 }
