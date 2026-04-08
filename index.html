@@ -1202,7 +1202,7 @@ function switchRecView(v) {
 }
 
 function recCard(r,mine=false){
-  const safeTitle = (r.title||"").replace(/'/g,"&#39;").replace(/`/g,"&#96;");
+  const safeTitle = (r.title||"").replace(/'/g,"&#39;").replace(/[`]/g,"&#96;");
   const safeCat   = (r.cat||"").replace(/'/g,"&#39;");
   return `<div style="background:#0d1420;border-radius:14px;border:1px solid #1c2b40;padding:16px;margin-bottom:10px;">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
@@ -1528,7 +1528,7 @@ function postCard(p){
     <div style="display:flex;gap:8px;">
       <button onclick="likePost('${p.id}')" style="padding:5px 12px;border-radius:16px;border:1px solid ${liked?'#62c9a2':'#1c2b40'};background:${liked?'#62c9a220':'transparent'};color:${liked?'#62c9a2':'#92aabf'};font-size:13px;cursor:pointer;">👍 ${(p.likes||[]).length}</button>
       <button onclick="toggleComments('${p.id}')" style="padding:5px 12px;border-radius:16px;border:1px solid #1c2b40;background:transparent;color:#92aabf;font-size:13px;cursor:pointer;">💬 댓글${cmtCount>0?' '+cmtCount:''}</button>
-      <button onclick="getPostAI('${p.id}','${p.cat}',\`${(p.text||"").replace(/`/g,"'")}\`)" style="padding:5px 12px;border-radius:16px;border:1px solid #1c2b40;background:transparent;color:#92aabf;font-size:13px;cursor:pointer;">🤖 AI</button>
+      <button onclick="getPostAIFromEl(this,'${p.id}','${p.cat}')" data-txt="${(p.text||'').replace(/"/g,'&quot;').replace(/'/g,'&#39;').slice(0,300)}" style="padding:5px 12px;border-radius:16px;border:1px solid #1c2b40;background:transparent;color:#92aabf;font-size:13px;cursor:pointer;">🤖 AI</button>
     </div>
   </div>`;
 }
@@ -1562,6 +1562,11 @@ async function likePost(id) {
   const likes=p.likes||[];
   await FB.set("posts",id,{...p,likes:likes.includes(currentUser.uid)?likes.filter(u=>u!==currentUser.uid):[...likes,currentUser.uid]});
   renderCommunity();
+}
+
+function getPostAIFromEl(el, id, cat) {
+  const text = el.dataset.txt || "";
+  getPostAI(id, cat, text);
 }
 
 async function getPostAI(id,cat,text) {
@@ -2097,7 +2102,7 @@ function renderMPGarden(){
       <ellipse cx="100" cy="93"  rx="25" ry="20" fill="#2d6a1a"/>
       <ellipse cx="100" cy="79"  rx="18" ry="15" fill="#3d8a24"/>
       <ellipse cx="100" cy="67"  rx="12" ry="11" fill="#4d9a2e"/>
-      <ellipse cx="100" cy="57"  rx="8"  rx2="8" ry="8" fill="#5cb535"/>
+      <ellipse cx="100" cy="57"  rx="8" ry="8" fill="#5cb535"/>
       <circle  cx="75"  cy="122" r="5"   fill="#f4a0c0" opacity="0.7"/>
       <circle  cx="128" cy="118" r="5"   fill="#f4a0c0" opacity="0.7"/>
       <circle  cx="100" cy="72"  r="4"   fill="#d9b065" opacity="0.9"/>
